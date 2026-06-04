@@ -1,0 +1,7 @@
+//go:build arm || 386 || mips || mipsle || ppc
+
+package core
+
+func Uint(n int) uint32 {
+	return uint32(n)
+}
