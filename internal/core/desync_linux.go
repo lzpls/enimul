@@ -48,7 +48,7 @@ func sendWithNoise(
 	if err := syscall.SetsockoptInt(socketFD, level, opt, fakeTTL); err != nil {
 		return E.WithStr("set fake TTL", err)
 	}
-	if _, err := unix.Vmsplice(pipeW, []unix.Iovec{unix.Iovec{
+	if _, err := unix.Vmsplice(pipeW, []unix.Iovec{{
 		Base: unsafe.SliceData(data),
 		Len:  platform.Uint(len(fakeData)),
 	}}, unix.SPLICE_F_GIFT); err != nil {
