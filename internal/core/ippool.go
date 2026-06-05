@@ -35,12 +35,14 @@ const (
 type IPPool struct {
 	logger log.Logger
 
-	ips            []string
-	port           uint16
-	topIPCount     uint8
-	attempts       uint8
-	timeout        time.Duration
-	updateInterval time.Duration
+	waitScanOnStartUp bool
+	ips               []string
+	fallbackIP        string
+	port              uint16
+	topIPCount        uint8
+	attempts          uint8
+	timeout           time.Duration
+	updateInterval    time.Duration
 
 	mu          sync.RWMutex
 	bestIndexes []int
@@ -55,16 +57,22 @@ type IPPool struct {
 
 func (p *IPPool) UnmarshalJSON(b []byte) error {
 	var tmp struct {
-		IPs            []string `json:"ips"`
-		Port           int      `json:"port"`
-		TopIPCount     int      `json:"top_ip_count"`
-		MaxConcurrency int      `json:"max_concurrency"`
-		Timeout        string   `json:"timeout"`
-		UpdateInterval string   `json:"update_interval"`
-		Attempts       int      `json:"attempts"`
+		WaitScanOnStartUp bool     `json:"wait_scan_on_startup"`
+		FallbackIP        string   `json:"fallback_ip"`
+		IPs               []string `json:"ips"`
+		Port              int      `json:"port"`
+		TopIPCount        int      `json:"top_ip_count"`
+		MaxConcurrency    int      `json:"max_concurrency"`
+		Timeout           string   `json:"timeout"`
+		UpdateInterval    string   `json:"update_interval"`
+		Attempts          int      `json:"attempts"`
 	}
 	if err := json.Unmarshal(b, &tmp); err != nil {
 		return err
+	}
+
+	if tmp.FallbackIP != "" && net.ParseIP(tmp.FallbackIP) == nil {
+		return E.NewAny("invalid fallback IP: ", tmp.FallbackIP)
 	}
 
 	ips, err := parseIPList(tmp.IPs)
@@ -122,7 +130,9 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	p.waitScanOnStartUp = tmp.WaitScanOnStartUp
 	p.ips = ips
+	p.fallbackIP = tmp.FallbackIP
 	p.port = uint16(tmp.Port)
 	p.topIPCount = uint8(topCount)
 	p.attempts = uint8(attempts)
@@ -177,18 +187,17 @@ func parseIPList(sources []string) ([]string, error) {
 	return ips, nil
 }
 
-func (p *IPPool) Init(logger log.Logger) error {
+func (p *IPPool) Init(logger log.Logger) {
 	p.logger = logger
-	p.scan()
-	p.mu.RLock()
-	valid := p.curValidIPs > 0
-	p.mu.RUnlock()
-	if !valid {
-		return E.New("no valid IP found after initial scan")
+	if p.waitScanOnStartUp {
+		p.scan()
+		go p.monitor()
+	} else {
+		go func() {
+			p.scan()
+			p.monitor()
+		}()
 	}
-
-	go p.monitor()
-	return nil
 }
 
 func (p *IPPool) scan() {
@@ -201,14 +210,12 @@ func (p *IPPool) scan() {
 	p.logger.Info("Testing...")
 
 	for i := range p.ips {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			p.sem <- struct{}{}
 			latency, loss := p.testIP(i)
 			<-p.sem
 			results <- ipResult{i, latency, loss}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -319,10 +326,10 @@ func (p *IPPool) monitor() {
 
 func (p *IPPool) Get() string {
 	p.mu.RLock()
-	validCount := int(p.curValidIPs)
+	validCount := p.curValidIPs
 	if validCount == 0 {
 		p.mu.RUnlock()
-		return ""
+		return p.fallbackIP
 	}
 	indexes := append([]int(nil), p.bestIndexes[:validCount]...)
 	weights := append([]int(nil), p.bestWeights[:validCount]...)
@@ -330,7 +337,7 @@ func (p *IPPool) Get() string {
 	p.mu.RUnlock()
 
 	current := atomic.AddUint32(&p.counter, 1) - 1
-	target := int(current % uint32(total))
+	target := int(current) % total
 	acc := 0
 	for i := range validCount {
 		acc += weights[i]
@@ -338,7 +345,7 @@ func (p *IPPool) Get() string {
 			return p.ips[indexes[i]]
 		}
 	}
-	return p.ips[indexes[0]]
+	return p.fallbackIP
 }
 
 func getFromIPPool(tag string) (ipStr string, err error) {

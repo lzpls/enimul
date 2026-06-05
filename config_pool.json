@@ -24,7 +24,8 @@
   "ip_pools": {
     "cloudflare": {
       "ips": ["www.visa.cn", "www.ietf.org", "fbi.gov"],
-      "port": 443
+      "port": 443,
+      "wait_scan_on_startup": true
     },
     "cloudfront": {
       "ips": ["108.158.4.0/24", "futuregadget-lab.com"],

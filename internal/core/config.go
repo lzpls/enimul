@@ -69,9 +69,7 @@ func LoadConfig(filePath string) (string, string, error) {
 	if len(conf.IPPools) > 0 {
 		ipPools = conf.IPPools
 		for tag, pool := range ipPools {
-			if err := pool.Init(newLogger("P[" + tag + "]")); err != nil {
-				return "", "", E.WithStr("init ip pool "+tag, err)
-			}
+			pool.Init(newLogger("P[" + tag + "]"))
 		}
 	}
 
@@ -156,7 +154,7 @@ func LoadConfig(filePath string) (string, string, error) {
 		if conf.DoHProxy == "" {
 			transport.DialContext, err = genDoHDialFunc()
 			if err != nil {
-				return "", "", err
+				return "", "", E.WithStr("generate DoH dial function", err)
 			}
 		} else {
 			dialer, err := proxy.SOCKS5("tcp", conf.DoHProxy, nil, proxy.Direct)
