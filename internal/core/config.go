@@ -1,11 +1,8 @@
 package core
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -18,8 +15,6 @@ import (
 	"github.com/lzpls/enimul/internal/singleflight"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/miekg/dns"
-	"golang.org/x/net/proxy"
 )
 
 type Config struct {
@@ -28,9 +23,7 @@ type Config struct {
 	Socks5Addr       string             `json:"socks5_address"`
 	HttpAddr         string             `json:"http_address"`
 	OutboundBinding  dial.BindingOption `json:"outbound_binding"`
-	DNSAddr          string             `json:"dns_addr"`
-	UDPSize          uint16             `json:"udp_minsize"`
-	DoHProxy         string             `json:"socks5_for_doh"`
+	DNSConfig        DNSConfig          `json:"dns"`
 	FakeTTLRules     string             `json:"fake_ttl_rules"`
 	DNSSingleflight  bool               `json:"dns_singleflight"`
 	DNSCacheTTL      int                `json:"dns_cache_ttl"`
@@ -73,27 +66,9 @@ func LoadConfig(filePath string) (string, string, error) {
 		}
 	}
 
-	if conf.DNSSingleflight {
-		dnsSingleflight = new(singleflight.Group[string, string])
-	}
 	if conf.TTLSingleflight {
 		ttlSingleflight = new(singleflight.Group[string, int])
 	}
-
-	if conf.DNSCacheTTL < 0 {
-		return "", "", fmt.Errorf("invalid dns_cache_ttl: %d", conf.DNSCacheTTL)
-	}
-	if conf.DNSCacheTTL != 0 {
-		if conf.DNSCacheCapacity == 0 {
-			conf.DNSCacheCapacity = 4096
-		}
-		dnsCache, err = freelru.NewSharded[string, string](conf.DNSCacheCapacity, hashStringXXHASH)
-		if err != nil {
-			return "", "", E.WithStr("init dns cache", err)
-		}
-		dnsCacheTTL = time.Duration(conf.DNSCacheTTL) * time.Second
-	}
-
 	if conf.TTLCacheTTL < 0 {
 		return "", "", fmt.Errorf("invalid ttl_cache_ttl: %d", conf.TTLCacheTTL)
 	}
@@ -148,31 +123,8 @@ func LoadConfig(filePath string) (string, string, error) {
 		}
 	}
 
-	dnsAddr = conf.DNSAddr
-	if strings.HasPrefix(dnsAddr, "https://") {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		if conf.DoHProxy == "" {
-			transport.DialContext, err = genDoHDialFunc()
-			if err != nil {
-				return "", "", E.WithStr("generate DoH dial function", err)
-			}
-		} else {
-			dialer, err := proxy.SOCKS5("tcp", conf.DoHProxy, nil, proxy.Direct)
-			if err != nil {
-				return "", "", E.WithStr("create socks5 dialer", err)
-			}
-			transport.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
-				return dialer.Dial(network, addr)
-			}
-		}
-		httpClient = &http.Client{Transport: transport}
-		dnsExchange = dohExchange
-	} else {
-		dnsExchange = do53Exchange
-		dnsClient = new(dns.Client)
-		if conf.UDPSize > 0 {
-			dnsClient.UDPSize = conf.UDPSize
-		}
+	if err := setDNS(conf.DNSConfig); err != nil {
+		return "", "", err
 	}
 
 	return conf.Socks5Addr, conf.HttpAddr, nil

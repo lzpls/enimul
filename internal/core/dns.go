@@ -1,19 +1,113 @@
 package core
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/singleflight"
+	"golang.org/x/net/proxy"
 
 	"github.com/miekg/dns"
 )
+
+type DNSConfig struct {
+	Type          string `json:"type"`
+	Addr          string `json:"addr"`
+	SingleFlight  bool   `json:"singleflight"`
+	CacheTTL      int    `json:"cache_ttl"`
+	CacheCapacity uint32 `json:"cache_cap"`
+
+	UDPSize     uint16 `json:"udp_size"`
+	WaitTimeout string `json:"wait_timeout"`
+
+	DoHSocks5Addr string `json:"doh_socks5_addr"`
+}
+
+func setDNS(c DNSConfig) error {
+	if c.Addr == "" {
+		return E.New("dns.addr cannot be empty")
+	}
+
+	dnsAddr = c.Addr
+	switch c.Type {
+	case "", "udp": // default
+		cli := new(dns.Client)
+		if c.UDPSize > 0 {
+			cli.UDPSize = c.UDPSize
+		}
+		if c.WaitTimeout == "" {
+			dnsClient = cli
+		} else {
+			println(c.WaitTimeout)
+			timeout, err := time.ParseDuration(c.WaitTimeout)
+			if err != nil {
+				return E.WithStr("invalid dns.wait_timeout", err)
+			}
+			if timeout < 0 {
+				return E.New("dns.wait_timeout must be greater than 0")
+			}
+			dnsClient = &antiHijackDNSClient{Client: *cli, waitTimeout: timeout}
+		}
+		dnsExchange = do53Exchange
+	case "tcp":
+		dnsClient = &dns.Client{Net: "tcp"}
+		dnsExchange = do53Exchange
+	case "https":
+		if !isValidHTTPSURL(dnsAddr) {
+			return E.NewAny("invalid DoH URL: ", dnsAddr)
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if c.DoHSocks5Addr == "" {
+			var err error
+			transport.DialContext, err = genDoHDialFunc()
+			if err != nil {
+				return E.WithStr("generate DoH dial function", err)
+			}
+		} else {
+			dialer, err := proxy.SOCKS5("tcp", c.DoHSocks5Addr, nil, proxy.Direct)
+			if err != nil {
+				return E.WithStr("create socks5 dialer", err)
+			}
+			transport.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
+				return dialer.Dial(network, addr)
+			}
+		}
+		httpClient = &http.Client{Transport: transport}
+		dnsExchange = dohExchange
+	}
+
+	if c.SingleFlight {
+		dnsSingleflight = new(singleflight.Group[string, string])
+	}
+	if c.CacheTTL < 0 {
+		return E.NewAny("invalid dns.cache_ttl:", c.CacheTTL)
+	}
+	if c.CacheTTL != 0 {
+		if c.CacheCapacity == 0 {
+			c.CacheCapacity = 4096
+		}
+		var err error
+		dnsCache, err = freelru.NewSharded[string, string](c.CacheCapacity, hashStringXXHASH)
+		if err != nil {
+			return E.WithStr("init DNS cache", err)
+		}
+		dnsCacheTTL = time.Duration(c.CacheTTL) * time.Second
+	}
+	return nil
+}
+
+func isValidHTTPSURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != ""
+}
 
 type DNSMode uint8
 
@@ -67,9 +161,13 @@ func (m *DNSMode) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type DNSClient interface {
+	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
+}
+
 var (
 	dnsAddr         string
-	dnsClient       *dns.Client
+	dnsClient       DNSClient
 	httpClient      *http.Client
 	dnsExchange     func(req *dns.Msg) (resp *dns.Msg, err error)
 	dnsCache        *freelru.ShardedLRU[string, string]
@@ -216,4 +314,136 @@ func dnsResolve(domain string, dnsMode DNSMode) (ip string, cached bool, err err
 	}
 
 	return
+}
+
+type antiHijackDNSClient struct {
+	dns.Client
+	waitTimeout time.Duration
+}
+
+func (c *antiHijackDNSClient) readTimeout() time.Duration {
+	if c.Timeout != 0 {
+		return c.Timeout
+	}
+	if c.ReadTimeout != 0 {
+		return c.ReadTimeout
+	}
+	return 2 * time.Second
+}
+
+func (c *antiHijackDNSClient) writeTimeout() time.Duration {
+	if c.Timeout != 0 {
+		return c.Timeout
+	}
+	if c.WriteTimeout != 0 {
+		return c.WriteTimeout
+	}
+	return 2 * time.Second
+}
+
+func (c *antiHijackDNSClient) getTimeoutForRequest(timeout time.Duration) time.Duration {
+	var requestTimeout time.Duration
+	if c.Timeout != 0 {
+		requestTimeout = c.Timeout
+	} else {
+		requestTimeout = timeout
+	}
+	if c.Dialer != nil && c.Dialer.Timeout != 0 {
+		if c.Dialer.Timeout < requestTimeout {
+			requestTimeout = c.Dialer.Timeout
+		}
+	}
+	return requestTimeout
+}
+
+func (c *antiHijackDNSClient) Exchange(m *dns.Msg, address string) (r *dns.Msg, rtt time.Duration, err error) {
+	co, err := c.Dial(address)
+
+	if err != nil {
+		return nil, 0, err
+	}
+	defer co.Close()
+	return c.ExchangeWithConn(m, co)
+}
+
+func (c *antiHijackDNSClient) ExchangeWithConn(m *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
+	return c.ExchangeWithConnContext(context.Background(), m, conn)
+}
+
+func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dns.Msg, co *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
+	opt := m.IsEdns0()
+	if opt != nil && opt.UDPSize() >= dns.MinMsgSize {
+		co.UDPSize = opt.UDPSize()
+	}
+	if opt == nil && c.UDPSize >= dns.MinMsgSize {
+		co.UDPSize = c.UDPSize
+	}
+
+	t := time.Now()
+	writeDeadline := t.Add(c.getTimeoutForRequest(c.writeTimeout()))
+	readDeadline := t.Add(c.getTimeoutForRequest(c.readTimeout()))
+
+	if deadline, ok := ctx.Deadline(); ok {
+		if deadline.Before(writeDeadline) {
+			writeDeadline = deadline
+		}
+		if deadline.Before(readDeadline) {
+			readDeadline = deadline
+		}
+	}
+	co.SetWriteDeadline(writeDeadline)
+
+	if c.waitTimeout > 0 {
+		waitDeadline := t.Add(c.waitTimeout)
+		if readDeadline.Before(waitDeadline) {
+			readDeadline = waitDeadline
+		}
+	}
+	co.SetReadDeadline(readDeadline)
+
+	co.TsigSecret, co.TsigProvider = c.TsigSecret, c.TsigProvider
+
+	if err = co.WriteMsg(m); err != nil {
+		return nil, 0, err
+	}
+
+	var (
+		bestR           *dns.Msg
+		bestRecordCount int
+		bestRTT         time.Duration
+		lastErr         error
+	)
+
+	n := 0
+	for {
+		n++
+		r, err = co.ReadMsg()
+		curRTT := time.Since(t)
+
+		if err != nil {
+			lastErr = err
+			break
+		}
+
+		if r.Id == m.Id {
+			recordCount := len(r.Answer) + len(r.Ns) + len(r.Extra)
+
+			if recordCount >= bestRecordCount {
+				bestR = r
+				bestRecordCount = recordCount
+				bestRTT = curRTT
+			}
+		}
+
+		if curRTT >= c.waitTimeout {
+			break
+		}
+	}
+	println(n)
+
+	if bestR != nil {
+		return bestR, bestRTT, nil
+	}
+
+	return r, time.Since(t), lastErr
 }

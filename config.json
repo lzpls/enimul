@@ -11,13 +11,16 @@
     "dial_ipv6_target": "[2001:4860:4860::8888]:53",
     "update_interval": "30m"
   },
-  "dns_addr": "https://987.cloudflare-gateway.com/dns-query",
-  "socks5_for_doh": "",
-  "udp_minsize": 4096,
-  "dns_singleflight": false,
-  "dns_cache_ttl": 3600,
-  "dns_cache_cap": 4096,
-  "ttl_singleflight": true,
+  "dns": {
+    "type": "https",
+    "addr": "https://987.cloudflare-gateway.com/dns-query",
+    "wait_timeout": "300ms",
+    "udp_size": 4096,
+    "singleflight": true,
+    "cache_ttl": 3600,
+    "cache_cap": 4096,
+    "doh_socks5_addr": ""
+  },
   "ttl_cache_ttl": 86400,
   "ttl_cache_cap": 1024,
   "fake_ttl_rules": "0-1;3=3;5-1;8-2;13-3;20=18",
