@@ -20,17 +20,17 @@ const (
 
 func ParseLevel(s string) (Level, error) {
 	switch strings.TrimSpace(s) {
-	case "TRACE", "Trace", "trace":
+	case "TRACE", "trace":
 		return LevelTrace, nil
-	case "DEBUG", "Debug", "debug":
+	case "DEBUG", "debug":
 		return LevelDebug, nil
-	case "INFO", "Info", "info":
+	case "INFO", "info":
 		return LevelInfo, nil
-	case "WARN", "Warn", "warn":
+	case "WARN", "warn":
 		return LevelWarn, nil
-	case "ERROR", "Error", "error":
+	case "ERROR", "error":
 		return LevelError, nil
-	case "NONE", "None", "none":
+	case "NONE", "none":
 		return Disabled, nil
 	}
 	return 0, errors.New("unknown log level" + s)
