@@ -46,7 +46,6 @@ func setDNS(c DNSConfig) error {
 		if c.WaitTimeout == "" {
 			dnsClient = cli
 		} else {
-			println(c.WaitTimeout)
 			timeout, err := time.ParseDuration(c.WaitTimeout)
 			if err != nil {
 				return E.WithStr("invalid dns.wait_timeout", err)
@@ -414,9 +413,7 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 		lastErr         error
 	)
 
-	n := 0
 	for {
-		n++
 		r, err = co.ReadMsg()
 		curRTT := time.Since(t)
 
@@ -439,7 +436,6 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 			break
 		}
 	}
-	println(n)
 
 	if bestR != nil {
 		return bestR, bestRTT, nil
