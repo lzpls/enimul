@@ -53,13 +53,13 @@ func setDNS(c DNSConfig) error {
 	if c.Addr == "" {
 		return E.New("dns.addr cannot be empty")
 	}
-	if _, err := netip.ParseAddrPort(c.Addr); err != nil {
-		return E.WithStr("invalid dns.addr", err)
-	}
 
 	dnsAddr = c.Addr
 	switch c.Type {
 	case "", "udp": // default
+		if _, err := netip.ParseAddrPort(dnsAddr); err != nil {
+			return E.WithStr("invalid dns.addr", err)
+		}
 		cli := dns.Client{}
 		if c.UDPSize > 0 {
 			cli.UDPSize = c.UDPSize
@@ -81,9 +81,15 @@ func setDNS(c DNSConfig) error {
 		}
 		dnsExchange = dnsClientExchange
 	case "tcp":
+		if _, err := netip.ParseAddrPort(dnsAddr); err != nil {
+			return E.WithStr("invalid dns.addr", err)
+		}
 		dnsClient = &dns.Client{Net: "tcp"}
 		dnsExchange = dnsClientExchange
 	case "tls":
+		if _, err := netip.ParseAddrPort(dnsAddr); err != nil {
+			return E.WithStr("invalid dns.addr", err)
+		}
 		dnsClient = &dns.Client{Net: "tcp-tls"}
 		dnsExchange = dnsClientExchange
 	case "https":
