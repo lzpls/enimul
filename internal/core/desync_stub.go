@@ -1,6 +1,6 @@
 //go:build !windows && !linux
 
-package enimul
+package core
 
 import (
 	"net"
@@ -17,7 +17,7 @@ var errTTLDNotSupported = E.New("`ttl-d` is not supported on current system")
 var (
 	ttlCache        *freelru.ShardedLRU[string, int]
 	ttlCacheTTL     time.Duration
-	ttlSingleflight *singleflight.Group[int]
+	ttlSingleflight *singleflight.Group[string, int]
 )
 
 func loadTTLRules(string) error {
