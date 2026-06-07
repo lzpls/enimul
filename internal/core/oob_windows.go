@@ -27,13 +27,13 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 		toSend[len(data)] = oob
 	}
 	wsabuf := syscall.WSABuf{
-		Len: uint32(len(toSend)),
 		Buf: unsafe.SliceData(toSend),
+		Len: uint32(len(toSend)),
 	}
 	var n uint32
-	var innerErr error
+	var sendErr error
 	if err = rawConn.Write(func(fd uintptr) (done bool) {
-		innerErr = syscall.WSASend(
+		sendErr = syscall.WSASend(
 			syscall.Handle(fd),
 			&wsabuf,
 			1,
@@ -46,5 +46,5 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 	}); err != nil {
 		return E.WithStr("raw write (wsasend)", err)
 	}
-	return E.WithStr("wsasend (MSG_OOB)", innerErr)
+	return E.WithStr("wsasend (MSG_OOB)", sendErr)
 }

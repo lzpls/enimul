@@ -20,11 +20,11 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 	copy(toSend, data)
 	toSend[len(data)] = oob
 
-	var innerErr error
+	var sendErr error
 	if err = rawConn.Write(func(fd uintptr) (done bool) {
 		for {
-			innerErr = syscall.Sendto(int(fd), toSend, syscall.MSG_OOB, nil)
-			if innerErr == syscall.EINTR {
+			sendErr = syscall.Sendto(int(fd), toSend, syscall.MSG_OOB, nil)
+			if sendErr == syscall.EINTR {
 				continue
 			}
 			return true
@@ -32,5 +32,5 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 	}); err != nil {
 		return E.WithStr("raw write (send)", err)
 	}
-	return E.WithStr("send (MSG_OOB)", innerErr)
+	return E.WithStr("send (MSG_OOB)", sendErr)
 }

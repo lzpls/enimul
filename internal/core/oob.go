@@ -12,8 +12,5 @@ func getRawConn(conn any) (syscall.RawConn, error) {
 		return nil, E.New("not a syscall.Conn")
 	}
 	rawConn, err := sc.SyscallConn()
-	if err != nil {
-		return nil, E.WithStr("get raw conn", err)
-	}
-	return rawConn, nil
+	return rawConn, E.WithStr("get raw conn", err)
 }

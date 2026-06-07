@@ -18,6 +18,20 @@ import (
 	"github.com/miekg/dns"
 )
 
+var (
+	dnsAddr         string
+	dnsClient       DNSClient
+	httpClient      *http.Client
+	dnsExchange     func(req *dns.Msg) (resp *dns.Msg, err error)
+	dnsCache        *freelru.ShardedLRU[string, string]
+	dnsCacheTTL     time.Duration
+	dnsSingleflight *singleflight.Group[string, string]
+)
+
+type DNSClient interface {
+	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
+}
+
 type DNSConfig struct {
 	Type          string `json:"type"`
 	Addr          string `json:"addr"`
@@ -39,12 +53,12 @@ func setDNS(c DNSConfig) error {
 	dnsAddr = c.Addr
 	switch c.Type {
 	case "", "udp": // default
-		cli := new(dns.Client)
+		cli := dns.Client{}
 		if c.UDPSize > 0 {
 			cli.UDPSize = c.UDPSize
 		}
 		if c.WaitTimeout == "" {
-			dnsClient = cli
+			dnsClient = &cli
 		} else {
 			timeout, err := time.ParseDuration(c.WaitTimeout)
 			if err != nil {
@@ -53,12 +67,18 @@ func setDNS(c DNSConfig) error {
 			if timeout < 0 {
 				return E.New("dns.wait_timeout must be greater than 0")
 			}
-			dnsClient = &antiHijackDNSClient{Client: *cli, waitTimeout: timeout}
+			dnsClient = &antiHijackDNSClient{
+				Client:      cli,
+				waitTimeout: timeout,
+			}
 		}
-		dnsExchange = do53Exchange
+		dnsExchange = dnsClientExchange
 	case "tcp":
 		dnsClient = &dns.Client{Net: "tcp"}
-		dnsExchange = do53Exchange
+		dnsExchange = dnsClientExchange
+	case "tls":
+		dnsClient = &dns.Client{Net: "tcp-tls"}
+		dnsExchange = dnsClientExchange
 	case "https":
 		if !isValidHTTPSURL(dnsAddr) {
 			return E.NewAny("invalid DoH URL: ", dnsAddr)
@@ -160,21 +180,7 @@ func (m *DNSMode) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type DNSClient interface {
-	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
-}
-
-var (
-	dnsAddr         string
-	dnsClient       DNSClient
-	httpClient      *http.Client
-	dnsExchange     func(req *dns.Msg) (resp *dns.Msg, err error)
-	dnsCache        *freelru.ShardedLRU[string, string]
-	dnsCacheTTL     time.Duration
-	dnsSingleflight *singleflight.Group[string, string]
-)
-
-func do53Exchange(req *dns.Msg) (resp *dns.Msg, err error) {
+func dnsClientExchange(req *dns.Msg) (resp *dns.Msg, err error) {
 	resp, _, err = dnsClient.Exchange(req, dnsAddr)
 	return resp, err
 }
@@ -247,18 +253,15 @@ func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
 	var ip net.IP
 	switch dnsMode {
 	case DNSModeIPv4Only:
-		ip = pickFirstARecord(resp.Answer)
-		if ip == nil {
+		if ip = pickFirstARecord(resp.Answer); ip == nil {
 			return "", E.New("A record not found")
 		}
 	case DNSModeIPv6Only:
-		ip = pickFirstAAAARecord(resp.Answer)
-		if ip == nil {
+		if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
 			return "", E.New("AAAA record not found")
 		}
 	case DNSModePreferIPv4:
-		ip = pickFirstARecord(resp.Answer)
-		if ip == nil {
+		if ip = pickFirstARecord(resp.Answer); ip == nil {
 			msg.SetQuestion(domain+".", dns.TypeAAAA)
 			resp, err2 := dnsExchange(msg)
 			if err2 != nil {
@@ -267,14 +270,12 @@ func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
 			if resp.Rcode != dns.RcodeSuccess {
 				return "", E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
 			}
-			ip = pickFirstAAAARecord(resp.Answer)
-			if ip == nil {
+			if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
 				return "", E.New("record not found")
 			}
 		}
 	case DNSModePreferIPv6:
-		ip = pickFirstAAAARecord(resp.Answer)
-		if ip == nil {
+		if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
 			msg.SetQuestion(domain+".", dns.TypeA)
 			resp, err2 := dnsExchange(msg)
 			if err2 != nil {
@@ -283,8 +284,7 @@ func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
 			if resp.Rcode != dns.RcodeSuccess {
 				return "", E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
 			}
-			ip = pickFirstARecord(resp.Answer)
-			if ip == nil {
+			if ip = pickFirstARecord(resp.Answer); ip == nil {
 				return "", E.New("record not found")
 			}
 		}
@@ -315,10 +315,13 @@ func dnsResolve(domain string, dnsMode DNSMode) (ip string, cached bool, err err
 	return
 }
 
+// Modified from github.com/miekg/dns.Client
 type antiHijackDNSClient struct {
 	dns.Client
 	waitTimeout time.Duration
 }
+
+const dnsRWTimeout = 2 * time.Second
 
 func (c *antiHijackDNSClient) readTimeout() time.Duration {
 	if c.Timeout != 0 {
@@ -327,7 +330,7 @@ func (c *antiHijackDNSClient) readTimeout() time.Duration {
 	if c.ReadTimeout != 0 {
 		return c.ReadTimeout
 	}
-	return 2 * time.Second
+	return dnsRWTimeout
 }
 
 func (c *antiHijackDNSClient) writeTimeout() time.Duration {
@@ -337,7 +340,7 @@ func (c *antiHijackDNSClient) writeTimeout() time.Duration {
 	if c.WriteTimeout != 0 {
 		return c.WriteTimeout
 	}
-	return 2 * time.Second
+	return dnsRWTimeout
 }
 
 func (c *antiHijackDNSClient) getTimeoutForRequest(timeout time.Duration) time.Duration {
@@ -357,7 +360,6 @@ func (c *antiHijackDNSClient) getTimeoutForRequest(timeout time.Duration) time.D
 
 func (c *antiHijackDNSClient) Exchange(m *dns.Msg, address string) (r *dns.Msg, rtt time.Duration, err error) {
 	co, err := c.Dial(address)
-
 	if err != nil {
 		return nil, 0, err
 	}
@@ -382,7 +384,7 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 	writeDeadline := t.Add(c.getTimeoutForRequest(c.writeTimeout()))
 	readDeadline := t.Add(c.getTimeoutForRequest(c.readTimeout()))
 
-	if deadline, ok := ctx.Deadline(); ok {
+	if deadline, ok := ctx.Deadline(); ok && !deadline.IsZero() {
 		if deadline.Before(writeDeadline) {
 			writeDeadline = deadline
 		}
@@ -392,11 +394,8 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 	}
 	co.SetWriteDeadline(writeDeadline)
 
-	if c.waitTimeout > 0 {
-		waitDeadline := t.Add(c.waitTimeout)
-		if readDeadline.Before(waitDeadline) {
-			readDeadline = waitDeadline
-		}
+	if waitDeadline := t.Add(c.waitTimeout); readDeadline.Before(waitDeadline) {
+		readDeadline = waitDeadline
 	}
 	co.SetReadDeadline(readDeadline)
 

@@ -12,9 +12,7 @@ import (
 func main() {
 	fmt.Fprintln(os.Stderr, "lzpls/enimul", core.Version)
 	fmt.Fprintln(os.Stderr, "")
-	flag.Usage = func() {
-		flag.PrintDefaults()
-	}
+	flag.Usage = func() { flag.PrintDefaults() }
 	configPath := flag.String("c", "config.json", "Config file path")
 	addr := flag.String("b", "", "SOCKS5 bind address (default: address from config file)")
 	hAddr := flag.String("hb", "", "HTTP bind address (default: address from config file)")
@@ -23,7 +21,7 @@ func main() {
 
 	socks5Addr, httpAddr, err := core.LoadConfig(*configPath)
 	if err != nil {
-		fmt.Println("Failed to load config:", err)
+		fmt.Fprintln(os.Stderr, "Failed to load config:", err)
 		return
 	}
 
@@ -32,6 +30,7 @@ func main() {
 	}
 
 	runtime.GC()
+
 	done := make(chan struct{})
 	go core.SOCKS5Accept(addr, socks5Addr, done)
 	core.HTTPAccept(hAddr, httpAddr)

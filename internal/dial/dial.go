@@ -52,8 +52,7 @@ func DialTCPTimeout(address string, timeout time.Duration) (net.Conn, error) {
 type monitor = func() (net.IP, net.IP, string, error)
 
 func laddrMonitor(interval time.Duration, fn monitor) {
-	ticker := time.NewTicker(interval)
-	for range ticker.C {
+	for range time.Tick(interval) {
 		ipv4, ipv6, zone, err := fn()
 		if err != nil {
 			logger.Error("Failed to update local address: ", err)

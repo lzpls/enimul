@@ -11,20 +11,18 @@ import (
 )
 
 const (
-	initalBufferSize = 100
-	timeFormat       = "2006-01-02 15:04:05.000"
+	initialBufferSize  = 100
+	defaultTimeFormat = "2006-01-02 15:04:05.000"
 )
 
 var bufferPool = sync.Pool{
 	New: func() any {
-		buf := make([]byte, 0, initalBufferSize)
+		buf := make([]byte, 0, initialBufferSize)
 		return &buf
 	},
 }
 
-func getBuffer() *[]byte {
-	return bufferPool.Get().(*[]byte)
-}
+func getBuffer() *[]byte { return bufferPool.Get().(*[]byte) }
 
 func putBuffer(bufp *[]byte) {
 	if cap(*bufp) > 64<<10 {
@@ -56,7 +54,7 @@ func (l *consoleLogger) output(lvl Level, args []any) {
 	}
 
 	if !l.noTimestamp {
-		*bufp = time.Now().AppendFormat(*bufp, timeFormat)
+		*bufp = time.Now().AppendFormat(*bufp, defaultTimeFormat)
 		*bufp = append(*bufp, ' ')
 	}
 

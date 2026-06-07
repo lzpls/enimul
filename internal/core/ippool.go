@@ -200,6 +200,12 @@ func (p *IPPool) Init(logger log.Logger) {
 	}
 }
 
+type ipResult struct {
+	ipIndex int
+	latency time.Duration
+	loss    float64
+}
+
 func (p *IPPool) scan() {
 	p.scanMu.Lock()
 	defer p.scanMu.Unlock()
@@ -229,12 +235,6 @@ func (p *IPPool) scan() {
 	}
 
 	p.updateBest(validResults)
-}
-
-type ipResult struct {
-	ipIndex int
-	latency time.Duration
-	loss    float64
 }
 
 func (p *IPPool) testIP(index int) (time.Duration, float64) {
@@ -316,10 +316,7 @@ func (p *IPPool) updateBest(results []ipResult) {
 }
 
 func (p *IPPool) monitor() {
-	ticker := time.NewTicker(p.updateInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
+	for range time.Tick(p.updateInterval) {
 		p.scan()
 	}
 }

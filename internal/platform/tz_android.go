@@ -14,8 +14,7 @@ func init() {
 		return
 	}
 	timezone := strings.TrimSpace(string(output))
-	location, err := time.LoadLocation(timezone)
-	if err == nil {
+	if location, err := time.LoadLocation(timezone); err == nil {
 		time.Local = location
 	}
 }

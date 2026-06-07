@@ -55,7 +55,7 @@ func sendWithNoise(
 		return E.WithStr("vmsplice", err)
 	}
 
-	var rawWriteErr, innerErr error
+	var rawWriteErr, spliceErr error
 	done := make(chan struct{})
 	go func() {
 		remaining := len(fakeData)
@@ -67,13 +67,12 @@ func sendWithNoise(
 					remaining,
 					unix.SPLICE_F_NONBLOCK,
 				)
-				if err == syscall.EINTR {
+				if spliceErr = err; spliceErr == syscall.EINTR {
 					continue
 				}
 				remaining -= int(n)
-				innerErr = err
-				if innerErr != nil {
-					return innerErr != syscall.EAGAIN
+				if spliceErr != nil {
+					return spliceErr != syscall.EAGAIN
 				}
 			}
 			return true
@@ -93,7 +92,7 @@ func sendWithNoise(
 	if rawWriteErr != nil {
 		return E.WithStr("raw write (splice)", rawWriteErr)
 	}
-	return E.WithStr("splice", innerErr)
+	return E.WithStr("splice", spliceErr)
 }
 
 func desyncSend(
