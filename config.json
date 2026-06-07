@@ -14,11 +14,12 @@
   "dns": {
     "type": "https",
     "addr": "https://987.cloudflare-gateway.com/dns-query",
-    "wait_timeout": "300ms",
+    "wait_timeout": "400ms",
     "udp_size": 4096,
     "singleflight": true,
     "cache_ttl": 3600,
     "cache_cap": 4096,
+	  "edns0_subnet": "",
     "doh_socks5_addr": ""
   },
   "ttl_cache_ttl": 86400,

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"time"
 
@@ -26,6 +28,7 @@ var (
 	dnsCache        *freelru.ShardedLRU[string, string]
 	dnsCacheTTL     time.Duration
 	dnsSingleflight *singleflight.Group[string, string]
+	edns0SubnetOpt  *dns.OPT
 )
 
 type DNSClient interface {
@@ -38,6 +41,7 @@ type DNSConfig struct {
 	SingleFlight  bool   `json:"singleflight"`
 	CacheTTL      int    `json:"cache_ttl"`
 	CacheCapacity uint32 `json:"cache_cap"`
+	EDNS0Subnet   string `json:"edns0_subnet"`
 
 	UDPSize     uint16 `json:"udp_size"`
 	WaitTimeout string `json:"wait_timeout"`
@@ -48,6 +52,9 @@ type DNSConfig struct {
 func setDNS(c DNSConfig) error {
 	if c.Addr == "" {
 		return E.New("dns.addr cannot be empty")
+	}
+	if _, err := netip.ParseAddrPort(c.Addr); err != nil {
+		return E.WithStr("invalid dns.addr", err)
 	}
 
 	dnsAddr = c.Addr
@@ -106,8 +113,9 @@ func setDNS(c DNSConfig) error {
 	if c.SingleFlight {
 		dnsSingleflight = new(singleflight.Group[string, string])
 	}
+
 	if c.CacheTTL < 0 {
-		return E.NewAny("invalid dns.cache_ttl:", c.CacheTTL)
+		return E.NewAny("invalid dns.cache_ttl: ", c.CacheTTL)
 	}
 	if c.CacheTTL != 0 {
 		if c.CacheCapacity == 0 {
@@ -120,6 +128,28 @@ func setDNS(c DNSConfig) error {
 		}
 		dnsCacheTTL = time.Duration(c.CacheTTL) * time.Second
 	}
+
+	if c.EDNS0Subnet != "" {
+		prefix, err := netip.ParsePrefix(c.EDNS0Subnet)
+		if err != nil {
+			return fmt.Errorf("invalid edns0_subnet %s: %w", c.EDNS0Subnet, err)
+		}
+		family := uint16(1)
+		if prefix.Addr().Is6() {
+			family = 2
+		}
+		edns0 := &dns.EDNS0_SUBNET{
+			Code:          dns.EDNS0SUBNET,
+			Family:        family,
+			SourceNetmask: uint8(prefix.Bits()),
+			Address:       prefix.Addr().AsSlice(),
+		}
+		edns0SubnetOpt = &dns.OPT{
+			Hdr:    dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT},
+			Option: []dns.EDNS0{edns0},
+		}
+	}
+
 	return nil
 }
 
@@ -240,6 +270,9 @@ func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
 		msg.SetQuestion(domain+".", dns.TypeA)
 	case DNSModePreferIPv6, DNSModeIPv6Only:
 		msg.SetQuestion(domain+".", dns.TypeAAAA)
+	}
+	if edns0SubnetOpt != nil {
+		msg.Extra = []dns.RR{edns0SubnetOpt}
 	}
 
 	resp, err := dnsExchange(msg)
@@ -422,8 +455,11 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 		}
 
 		if r.Id == m.Id {
-			recordCount := len(r.Answer) + len(r.Ns) + len(r.Extra)
+			if edns0SubnetOpt != nil && hasEDNS0Subnet(r) {
+				return r, curRTT, nil
+			}
 
+			recordCount := len(r.Answer) + len(r.Ns) + len(r.Extra)
 			if recordCount >= bestRecordCount {
 				bestR = r
 				bestRecordCount = recordCount
@@ -441,4 +477,19 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 	}
 
 	return r, time.Since(t), lastErr
+}
+
+func hasEDNS0Subnet(resp *dns.Msg) bool {
+	for _, rr := range resp.Extra {
+		opt, ok := rr.(*dns.OPT)
+		if !ok {
+			continue
+		}
+		for _, o := range opt.Option {
+			if o.Option() == dns.EDNS0SUBNET {
+				return true
+			}
+		}
+	}
+	return false
 }
