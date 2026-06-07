@@ -59,13 +59,15 @@ func handleTunnel(
 			return
 		}
 
-		if peekBytes[0] == tlsRecordTypeHandshake && peekBytes[1] == tlsMajorVersion {
-			payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
-			var ok bool
-			if dstConn, ok = handleTLS(logger, payloadLen,
-				p, originHost, oldTarget, target, originPort,
-				br, cliConn, dstConn); !ok {
-				return
+		if peekBytes[0] == tlsRecordTypeHandshake {
+			if peekBytes[1] == tlsMajorVersion {
+				payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
+				var ok bool
+				if dstConn, ok = handleTLS(logger, payloadLen,
+					p, originHost, oldTarget, target, originPort,
+					br, cliConn, dstConn); !ok {
+					return
+				}
 			}
 		} else if bytesHasPrefix(peekBytes,
 			"GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
