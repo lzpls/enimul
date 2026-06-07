@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -54,10 +53,10 @@ func LoadConfig(filePath string) (string, string, error) {
 		return "", "", err
 	}
 
-	logLevel = conf.LogLevel
 	if err := setLogOutput(conf.LogOutput); err != nil {
 		return "", "", err
 	}
+	logLevel = conf.LogLevel
 
 	if len(conf.IPPools) > 0 {
 		ipPools = conf.IPPools
@@ -70,7 +69,7 @@ func LoadConfig(filePath string) (string, string, error) {
 		ttlSingleflight = new(singleflight.Group[string, int])
 	}
 	if conf.TTLCacheTTL < 0 {
-		return "", "", fmt.Errorf("invalid ttl_cache_ttl: %d", conf.TTLCacheTTL)
+		return "", "", E.NewAny("invalid ttl_cache_ttl: ", conf.TTLCacheTTL)
 	}
 	if conf.TTLCacheTTL != 0 {
 		if conf.TTLCacheCapacity == 0 {
@@ -137,8 +136,8 @@ func hashStringXXHASH(s string) uint32 {
 
 func expandPattern(s string) []string {
 	left := -1
-	for i, ch := range s {
-		if ch == '(' {
+	for i := range s {
+		if s[i] == '(' {
 			left = i
 			break
 		}
@@ -190,12 +189,12 @@ func splitByPipe(s string) []string {
 	}
 	result := []string{}
 	curr := ""
-	for _, ch := range s {
-		if ch == '|' {
+	for i := range s {
+		if s[i] == '|' {
 			result = append(result, curr)
 			curr = ""
 		} else {
-			curr += string(ch)
+			curr += string(s[i])
 		}
 	}
 	result = append(result, curr)
