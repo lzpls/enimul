@@ -17,7 +17,7 @@
 
 // Package freelru provides a GC-less, fast and generic LRU hashmap library.
 //
-// Copied and modified from github.com/elastic/go-freelru
+// Modified from https://github.com/elastic/go-freelru/tree/073fe705e5c92afe5b1da9bc089575355d2655d8
 package freelru
 
 import (
@@ -326,7 +326,7 @@ func (lru *LRU[K, V]) findKey(hash uint32, key K) (uint32, bool) {
 	}
 }
 
-func (lru *LRU[K, V]) findKeyNoExpire(hash uint32, key K) (uint32, bool) {
+/*func (lru *LRU[K, V]) findKeyNoExpire(hash uint32, key K) (uint32, bool) {
 	_, startPos := lru.hashToPos(hash)
 	if startPos == emptyBucket {
 		return emptyBucket, false
@@ -346,7 +346,7 @@ func (lru *LRU[K, V]) findKeyNoExpire(hash uint32, key K) (uint32, bool) {
 	}
 }
 
-/*// Len returns the number of elements stored in the cache.
+// Len returns the number of elements stored in the cache.
 func (lru *LRU[K, V]) Len() int {
 	return int(lru.len)
 }*/

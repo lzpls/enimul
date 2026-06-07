@@ -5,7 +5,7 @@
 // Package singleflight provides a duplicate function call suppression
 // mechanism.
 //
-// Copied and modified from golang.org/x/sync/singleflight
+// Modified from golang.org/x/sync/singleflight
 package singleflight
 
 import (
@@ -53,7 +53,7 @@ type call[T any] struct {
 	err error
 
 	dups  int
-	chans []chan<- Result[T]
+	chans []chan<- result[T]
 }
 
 type Group[K comparable, V any] struct {
@@ -61,10 +61,10 @@ type Group[K comparable, V any] struct {
 	m  map[K]*call[V]
 }
 
-type Result[T any] struct {
-	Val    T
-	Err    error
-	Shared bool
+type result[T any] struct {
+	val    T
+	err    error
+	shared bool
 }
 
 func (g *Group[K, V]) Do(key K, fn func() (V, error)) (v V, err error, shared bool) {
@@ -138,10 +138,9 @@ func (g *Group[K, V]) doCall(c *call[V], key K, fn func() (V, error)) {
 			} else {
 				panic(e)
 			}
-		} else if c.err == errGoexit {
-		} else {
+		} else if c.err != errGoexit {
 			for _, ch := range c.chans {
-				ch <- Result[V]{c.val, c.err, c.dups > 0}
+				ch <- result[V]{c.val, c.err, c.dups > 0}
 			}
 		}
 	}()

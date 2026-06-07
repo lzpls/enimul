@@ -11,6 +11,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Modified from https://github.com/SagerNet/sing-box/blob/83b73048ff772b919af18653b78ffeaa2d48b66e/common/tlsfragment/wait_linux.go
+
 func waitForAck(enabled bool, conn net.Conn, delay time.Duration) error {
 	if !enabled {
 		time.Sleep(delay)
@@ -18,15 +20,14 @@ func waitForAck(enabled bool, conn net.Conn, delay time.Duration) error {
 	}
 	rawConn, err := getRawConn(conn)
 	if err != nil {
-		return err
+		return E.WithStr("wait for ACK", err)
 	}
 	var innerErr error
 	rawCtrlErr := rawConn.Control(func(fd uintptr) {
 		start := time.Now()
-		fdInt := int(fd)
 		for {
 			var tcpInfo *unix.TCPInfo
-			tcpInfo, innerErr = unix.GetsockoptTCPInfo(fdInt, unix.IPPROTO_TCP, unix.TCP_INFO)
+			tcpInfo, innerErr = unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO)
 			if innerErr != nil {
 				return
 			}
@@ -41,8 +42,6 @@ func waitForAck(enabled bool, conn net.Conn, delay time.Duration) error {
 	})
 	if rawCtrlErr != nil {
 		return E.WithStr("wait for ACK: raw control", rawCtrlErr)
-	} else if innerErr != nil {
-		return E.WithStr("wait for ACK: get tcp info", innerErr)
 	}
-	return nil
+	return E.WithStr("wait for ACK: get TCP info", innerErr)
 }

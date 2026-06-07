@@ -2,6 +2,4 @@
 
 package platform
 
-func Uint(n int) uint32 {
-	return uint32(n)
-}
+type Uint = uint32
