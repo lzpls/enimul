@@ -23,7 +23,6 @@ func handleTunnel(
 ) {
 	var (
 		err       error
-		cliReader io.Reader
 		closeHere = true
 	)
 	closeBoth := func() {
@@ -46,7 +45,6 @@ func handleTunnel(
 				return
 			}
 		}
-		cliReader = cliConn
 	} else {
 		br := bufio.NewReader(cliConn)
 		peekBytes, err := br.Peek(10)
@@ -87,7 +85,17 @@ func handleTunnel(
 		} else {
 			logger.Info("Unknown protocol")
 		}
-		cliReader = br
+		if n := br.Buffered(); n > 0 {
+			buf := make([]byte, n)
+			if _, err := br.Read(buf); err != nil {
+				logger.Error("Drain buffered data: ", err)
+				return
+			}
+			if _, err := dstConn.Write(buf); err != nil {
+				logger.Error("Send drained buffered data: ", err)
+				return
+			}
+		}
 	}
 
 	logger.Info("Start forwarding")
@@ -95,12 +103,12 @@ func handleTunnel(
 	closeHere = false
 	var done atomic.Bool
 	go func() {
-		if _, err := io.Copy(dstTCPConn, cliReader); err != nil {
+		if _, err := io.Copy(dstTCPConn, srcTCPConn); err != nil {
+			closeBoth()
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
 			logger.Error("Forward ", cliConn.RemoteAddr(), "->", originHost, ": ", err)
-			closeBoth()
 			return
 		}
 		logger.Debug("Forward ", cliConn.RemoteAddr(), "->", originHost, " finished")
@@ -110,11 +118,11 @@ func handleTunnel(
 	}()
 	go func() {
 		if _, err := io.Copy(srcTCPConn, dstTCPConn); err != nil {
+			closeBoth()
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
 			logger.Error("Forward ", originHost, "->", cliConn.RemoteAddr(), ": ", err)
-			closeBoth()
 			return
 		}
 		logger.Debug("Forward ", originHost, "->", cliConn.RemoteAddr(), " finished")
