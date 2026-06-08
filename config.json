@@ -19,7 +19,7 @@
     "singleflight": true,
     "cache_ttl": 3600,
     "cache_cap": 4096,
-	  "edns0_subnet": "",
+    "edns0_subnet": "",
     "doh_socks5_addr": ""
   },
   "ttl_cache_ttl": 86400,
