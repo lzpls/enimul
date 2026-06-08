@@ -29,6 +29,8 @@ func main() {
 		runtime.GOMAXPROCS(*maxprocs)
 	}
 
+	startPprofServer()
+
 	runtime.GC()
 
 	done := make(chan struct{})
