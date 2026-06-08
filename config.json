@@ -35,7 +35,7 @@
     "(gist.|)github.com;patch-diff.githubusercontent.com": "20.207.73.82",
     "api.github.com": "20.207.73.85",
     "codeload.github.com": "20.207.73.88",
-	  "uploads.github.com": "4.237.22.36",
+    "uploads.github.com": "4.237.22.36",
     "*(github.io|.githubusercontent.com);(page|doc)s.github.com": "146.75.48.133",
     "objects-origin.githubusercontent.com": "140.82.113.22",
     "abs-0.twimg.com": "146.75.48.159",
@@ -97,7 +97,7 @@
   },
   "domain_policies": {
     "*(google.com|google.com.hk|gmail.com|google.dev|googleapis.com|gstatic.com|googleusercontent.com|.google|goo.gl|translate.goog|android.com|ai.dev|blogger.com|blogspot.com|blogblog.com|chrome.com|chromium.org|golang.org|youtube.com|youtu.be|youtube-nocookie.com|.ytimg.com|.ggpht.com|gvt1.com|withgoogle.com|googlesource.com)": {
-      "host": "^172.253.158.90",
+      "host": "^142.251.149.251",
       "tls13_only": true,
       "http_status": 302
     },
