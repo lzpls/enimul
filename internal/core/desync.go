@@ -30,17 +30,13 @@ type timeoutError interface {
 }
 
 type ttlRule struct {
-	threshold int  // a
-	typ       byte // '-' or '='
-	val       int  // b
+	threshold int
+	typ       byte
+	val       int
 }
 
 func parseTTLRules(conf string) ([]ttlRule, error) {
-	if len(conf) == 0 {
-		return nil, E.New("empty config")
-	}
 	b := []byte(conf)
-
 	var rules []ttlRule
 	i := 0
 	for i < len(b) {
@@ -59,7 +55,7 @@ func parseTTLRules(conf string) ([]ttlRule, error) {
 		if i >= len(b) {
 			return nil, E.New("invalid rule: missing operator")
 		}
-		op := b[i] // '-' or '='
+		op := b[i]
 		if op != '-' && op != '=' {
 			return nil, E.New("invalid operator")
 		}
@@ -94,35 +90,25 @@ func parseTTLRules(conf string) ([]ttlRule, error) {
 }
 
 func loadTTLRules(conf string) error {
+	if conf == "" {
+		calcTTL = func(ttl int) (int, error) { return ttl - 1, nil }
+		return nil
+	}
 	rules, err := parseTTLRules(conf)
 	if err != nil {
-		return err
+		return E.WithStr("parse TTL rules", err)
 	}
-	if rules == nil {
-		calcTTL = func(int) (int, error) {
-			val := 0
-			for i := range len(conf) {
-				c := conf[i]
-				if c < '0' || c > '9' {
-					return 0, E.New("invalid integer config")
+	calcTTL = func(ttl int) (int, error) {
+		for _, r := range rules {
+			if ttl >= r.threshold {
+				if r.typ == '-' {
+					return ttl - r.val, nil
 				}
-				val = val*10 + int(c-'0')
+				// r.typ == '='
+				return r.val, nil
 			}
-			return val, nil
 		}
-	} else {
-		calcTTL = func(ttl int) (int, error) {
-			for _, r := range rules {
-				if ttl >= r.threshold {
-					if r.typ == '-' {
-						return ttl - r.val, nil
-					}
-					// r.typ == '='
-					return r.val, nil
-				}
-			}
-			return 0, E.New("no matching TTL rule")
-		}
+		return 0, E.New("no matching TTL rule")
 	}
 	return nil
 }
@@ -160,13 +146,9 @@ func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (ttl int, 
 		if ttl == unsetInt {
 			return unsetInt, E.New("reachable TTL not found")
 		}
-		if calcTTL != nil {
-			ttl, err = calcTTL(ttl)
-			if err != nil {
-				return unsetInt, E.WithStr("calculate fake TTL", err)
-			}
-		} else {
-			ttl -= 1
+		ttl, err = calcTTL(ttl)
+		if err != nil {
+			return unsetInt, E.WithStr("calculate fake TTL", err)
 		}
 		if logger != nil {
 			if cached {

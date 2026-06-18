@@ -49,7 +49,7 @@ func LoadConfig(filePath string) (string, string, error) {
 	}
 	file.Close()
 
-	if err := dial.SetLocalAddr(conf.OutboundBinding); err != nil {
+	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
 		return "", "", err
 	}
 	dial.SetLogger(newLogger("[dial]"))
@@ -83,10 +83,8 @@ func LoadConfig(filePath string) (string, string, error) {
 		ttlCacheTTL = time.Duration(conf.TTLCacheTTL) * time.Second
 	}
 
-	if conf.FakeTTLRules != "" {
-		if err = loadTTLRules(conf.FakeTTLRules); err != nil {
-			return "", "", E.WithStr("load fake TTL rules", err)
-		}
+	if err = loadTTLRules(conf.FakeTTLRules); err != nil {
+		return "", "", E.WithStr("load fake TTL rules", err)
 	}
 
 	defaultPolicy = conf.DefaultPolicy
