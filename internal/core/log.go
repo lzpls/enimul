@@ -30,6 +30,6 @@ func setLogOutput(out string) error {
 	return nil
 }
 
-func newLogger(id string) log.Logger {
-	return log.New(logOutput, id, logLevel)
+func newLogger(prefix string) log.Logger {
+	return log.New(logOutput, prefix, logLevel)
 }

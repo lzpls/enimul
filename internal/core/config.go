@@ -52,6 +52,7 @@ func LoadConfig(filePath string) (string, string, error) {
 	if err := dial.SetLocalAddr(conf.OutboundBinding); err != nil {
 		return "", "", err
 	}
+	dial.SetLogger(newLogger("[dial]"))
 
 	if err := setLogOutput(conf.LogOutput); err != nil {
 		return "", "", err
