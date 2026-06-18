@@ -22,10 +22,6 @@ func init() {
 	}
 }
 
-func setsockoptInt(fd uintptr, level, opt, value int) error {
-	return E.WithStr("setsockopt", syscall.SetsockoptInt(syscall.Handle(fd), level, opt, value))
-}
-
 func sendWithNoise(
 	sockHandle windows.Handle,
 	fakeData, realData []byte,

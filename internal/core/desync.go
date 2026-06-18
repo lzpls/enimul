@@ -13,6 +13,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/log"
+	"github.com/lzpls/enimul/internal/platform"
 	"github.com/lzpls/enimul/internal/singleflight"
 )
 
@@ -113,7 +114,7 @@ func loadTTLRules(conf string) error {
 	return nil
 }
 
-func getMinimalReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout time.Duration) (int, bool, error) {
+func getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout time.Duration) (int, bool, error) {
 	ip, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return 0, false, err
@@ -128,10 +129,10 @@ func getMinimalReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTi
 	found := unsetInt
 	if ttlSingleflight != nil {
 		found, err, _ = ttlSingleflight.Do(addr, func() (int, error) {
-			return detectMinimalReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout)
+			return probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout)
 		})
 	} else {
-		found, err = detectMinimalReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout)
+		found, err = probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout)
 	}
 	return found, false, err
 }
@@ -139,7 +140,7 @@ func getMinimalReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTi
 func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (ttl int, err error) {
 	if p.FakeTTL == 0 || p.FakeTTL == unsetInt {
 		var cached bool
-		ttl, cached, err = getMinimalReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout)
+		ttl, cached, err = getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout)
 		if err != nil {
 			return unsetInt, E.WithStr("detect minimum reachable TTL", err)
 		}
@@ -170,7 +171,7 @@ func ttlLevelOption(isIPv6 bool) (int, int) {
 	return syscall.IPPROTO_IP, syscall.IP_TTL
 }
 
-func detectMinimalReachableTTL(
+func probeMinimumReachableTTL(
 	ip, addr string, isIPv6 bool,
 	maxTTL, attempts int,
 	dialTimeout time.Duration,
@@ -187,7 +188,7 @@ func detectMinimalReachableTTL(
 		dialer.Control = func(_, _ string, c syscall.RawConn) error {
 			var innerErr error
 			if err := c.Control(func(fd uintptr) {
-				innerErr = setsockoptInt(fd, level, opt, mid)
+				innerErr = syscall.SetsockoptInt(platform.FD(fd), level, opt, mid)
 			}); err != nil {
 				return E.WithStr("raw control", err)
 			}

@@ -14,10 +14,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func setsockoptInt(fd uintptr, level, opt, value int) error {
-	return E.WithStr("setsockopt", syscall.SetsockoptInt(int(fd), level, opt, value))
-}
-
 func sendWithNoise(
 	socketFD int, rawConn syscall.RawConn,
 	fakeData, realData []byte,
@@ -113,7 +109,7 @@ func desyncSend(
 	}
 
 	level, opt := ttlLevelOption(isIPv6)
-	defaultTTL, err := unix.GetsockoptInt(fd, level, opt)
+	defaultTTL, err := syscall.GetsockoptInt(fd, level, opt)
 	if err != nil {
 		return E.WithStr("get default TTL", err)
 	}
