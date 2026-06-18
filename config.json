@@ -1,5 +1,6 @@
 {
   "log_level": "INFO",
+  "log_output": "stdout",
   "socks5_address": "127.0.0.1:1080",
   "http_address": "127.0.0.1:1225",
   "outbound_binding": {
@@ -46,7 +47,7 @@
     "(cn|purr|et).nytimes.com": "",
     "*nyt(imes|).com": "199.232.137.164",
     "archive.org": "207.241.225.120",
-    "*linux.do": "^172.64.229.24"
+    "*linux.do": "^"
   },
   "default_policy": {
     "reply_first": false,
