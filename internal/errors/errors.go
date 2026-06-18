@@ -3,7 +3,7 @@ package errors
 import (
 	"errors"
 
-	F "github.com/lzpls/enimul/internal/format"
+	F "github.com/lzpls/enimul/internal/fmt"
 )
 
 var New = errors.New

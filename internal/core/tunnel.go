@@ -13,7 +13,7 @@ import (
 
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
-	F "github.com/lzpls/enimul/internal/format"
+	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
 )
 

@@ -7,7 +7,7 @@ import (
 	"net/netip"
 
 	E "github.com/lzpls/enimul/internal/errors"
-	F "github.com/lzpls/enimul/internal/format"
+	F "github.com/lzpls/enimul/internal/fmt"
 )
 
 type networkInterface struct {
