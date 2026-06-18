@@ -8,6 +8,7 @@ import (
 	"time"
 
 	E "github.com/lzpls/enimul/internal/errors"
+	"github.com/lzpls/enimul/internal/platform"
 )
 
 type Method uint8
@@ -61,23 +62,26 @@ func (o *BindingOption) UnmarshalJSON(data []byte) (err error) {
 		}
 	}()
 	var tmp struct {
-		Method          Method `json:"method"`
-		ManualSelect    bool   `json:"manual_select"`
-		Zone            string `json:"zone"`
-		PreferredPrefix string `json:"preferred_prefix"`
-		UpdateInterval  string `json:"update_interval"`
-		DialTCP         bool   `json:"dial_tcp"`
-		DialIPv4Target  string `json:"dial_ipv4_target"`
-		DialIPv6Target  string `json:"dial_ipv6_target"`
-		DialTimeout     string `json:"dial_timeout"`
-		CustomIPv4      string `json:"custom_ipv4"`
-		CustomIPv6      string `json:"custom_ipv6"`
-		CustomZone      string `json:"custom_zone"`
+		EnableForAndroid bool   `json:"enable_for_android"`
+		Method           Method `json:"method"`
+		ManualSelect     bool   `json:"manual_select"`
+		Zone             string `json:"zone"`
+		PreferredPrefix  string `json:"preferred_prefix"`
+		UpdateInterval   string `json:"update_interval"`
+		DialTCP          bool   `json:"dial_tcp"`
+		DialIPv4Target   string `json:"dial_ipv4_target"`
+		DialIPv6Target   string `json:"dial_ipv6_target"`
+		DialTimeout      string `json:"dial_timeout"`
+		CustomIPv4       string `json:"custom_ipv4"`
+		CustomIPv6       string `json:"custom_ipv6"`
+		CustomZone       string `json:"custom_zone"`
 	}
 	if err = json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	o.Method = tmp.Method
+	if !platform.IsAndroid || tmp.EnableForAndroid {
+		o.Method = tmp.Method
+	}
 	switch o.Method {
 	case MethodOff:
 	case MethodSelectInterface:
