@@ -33,7 +33,7 @@ func ParseLevel(s string) (Level, error) {
 	case "NONE", "none":
 		return Disabled, nil
 	}
-	return 0, errors.New("unknown log level" + s)
+	return 0, errors.New("unknown log level: " + s)
 }
 
 func (lvl *Level) UnmarshalJSON(raw []byte) error {

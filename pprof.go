@@ -4,10 +4,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
+
+	"github.com/lzpls/enimul/internal/log"
 )
 
 var pprofServerAddr = flag.String("dp", "", "Debug pprof server bind address")
@@ -18,7 +18,7 @@ func startPprofServer() {
 	}
 	go func() {
 		if err := http.ListenAndServe(*pprofServerAddr, nil); err != nil {
-			fmt.Fprintln(os.Stderr, "Debug pprof server listen and serve:", err)
+			log.Err("Debug pprof server listen and serve: ", err)
 		}
 	}()
 }

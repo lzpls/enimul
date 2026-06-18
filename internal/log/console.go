@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	initialBufferSize  = 100
+	initialBufferSize = 100
 	defaultTimeFormat = "2006-01-02 15:04:05.000"
 )
 
@@ -34,10 +34,9 @@ func putBuffer(bufp *[]byte) {
 }
 
 type consoleLogger struct {
-	out         io.Writer
-	lvl         Level
-	noTimestamp bool
-	prefix      string
+	out    io.Writer
+	lvl    Level
+	prefix string
 }
 
 func (l *consoleLogger) output(lvl Level, args []any) {
@@ -53,10 +52,8 @@ func (l *consoleLogger) output(lvl Level, args []any) {
 		*bufp = append(*bufp, ' ')
 	}
 
-	if !l.noTimestamp {
-		*bufp = time.Now().AppendFormat(*bufp, defaultTimeFormat)
-		*bufp = append(*bufp, ' ')
-	}
+	*bufp = time.Now().AppendFormat(*bufp, defaultTimeFormat)
+	*bufp = append(*bufp, ' ')
 
 	*bufp = appendLevel(*bufp, lvl)
 
