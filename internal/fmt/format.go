@@ -2,6 +2,7 @@ package format
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"unsafe"
 )
@@ -72,3 +73,7 @@ func Int[T int | int8 | int16 | int32 | int64](v T) string {
 func Uint[T uint | uint8 | uint16 | uint32 | uint64](v T) string {
 	return strconv.FormatUint(uint64(v), 10)
 }
+
+func Println(args ...any) { fmt.Fprintln(os.Stderr, args...) }
+
+func Printf(msg string, args ...any) { fmt.Fprintf(os.Stderr, msg, args...) }

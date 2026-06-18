@@ -2,7 +2,6 @@ package dial
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/netip"
 
@@ -36,7 +35,7 @@ func getFilteredInterfaces() (networkInterfaces, error) {
 
 		addrs, err := iface.Addrs()
 		if err != nil {
-			log.Println("Get unicast interface addresses for", iface.Name+":", err)
+			F.Printf("Get addresses for interface %s: %v", iface.Name, err)
 			continue
 		}
 

@@ -2,16 +2,15 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/lzpls/enimul/internal/core"
+	F "github.com/lzpls/enimul/internal/fmt"
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "lzpls/enimul", core.Version)
-	fmt.Fprintln(os.Stderr, "")
+	F.Println("lzpls/enimul", core.Version)
+	F.Println()
 	flag.Usage = func() { flag.PrintDefaults() }
 	configPath := flag.String("c", "config.json", "Config file path")
 	addr := flag.String("b", "", "SOCKS5 bind address (default: address from config file)")
@@ -21,7 +20,7 @@ func main() {
 
 	socks5Addr, httpAddr, err := core.LoadConfig(*configPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Failed to load config:", err)
+		F.Println("Failed to load config:", err)
 		return
 	}
 
