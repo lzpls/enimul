@@ -30,8 +30,6 @@ func main() {
 
 	startPprofServer()
 
-	runtime.GC()
-
 	done := make(chan struct{})
 	go core.SOCKS5Accept(addr, socks5Addr, done)
 	core.HTTPAccept(hAddr, httpAddr)
