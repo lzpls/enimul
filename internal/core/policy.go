@@ -189,22 +189,22 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		ConnectTimeout    *string           `json:"connect_timeout"`
 		Host              *string           `json:"host"`
 		MapTo             *string           `json:"map_to"`
-		Port              *int              `json:"port"`
+		Port              *uint16              `json:"port"`
 		DNSMode           DNSMode           `json:"dns_mode"`
-		HttpStatus        *int              `json:"http_status"`
+		HttpStatus        *uint              `json:"http_status"`
 		TLS13Only         TriBool           `json:"tls13_only"`
 		Mode              Mode              `json:"mode"`
-		NumRecords        *int              `json:"num_records"`
+		NumRecords        *uint              `json:"num_records"`
 		NumSegments       *int              `json:"num_segs"`
 		WaitForAck        TriBool           `json:"wait_for_ack"`
 		OOB               TriBool           `json:"oob"`
 		OOBEx             TriBool           `json:"oob_ex"`
 		ModMinorVer       TriBool           `json:"mod_minor_ver"`
 		SendInterval      *string           `json:"send_interval"`
-		FakeTTL           *int              `json:"fake_ttl"`
+		FakeTTL           *uint8              `json:"fake_ttl"`
 		FakeSleep         *string           `json:"fake_sleep"`
-		MaxTTL            *int              `json:"max_ttl"`
-		Attempts          *int              `json:"attempts"`
+		MaxTTL            *uint8              `json:"max_ttl"`
+		Attempts          *uint             `json:"attempts"`
 		SingleTimeout     *string           `json:"single_timeout"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
@@ -239,54 +239,48 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 
 	if tmp.Port == nil {
 		p.Port = unsetInt
-	} else if *tmp.Port < 0 || *tmp.Port > 65535 {
-		return fmt.Errorf("port %d: outside the valid range", *tmp.Port)
 	} else {
-		p.Port = *tmp.Port
+		p.Port = int(*tmp.Port)
 	}
 
 	if tmp.HttpStatus == nil {
 		p.HttpStatus = unsetInt
-	} else if *tmp.HttpStatus < 0 {
-		return fmt.Errorf("http_status %d: outside the valid range", *tmp.HttpStatus)
 	} else {
-		p.HttpStatus = *tmp.HttpStatus
+		p.HttpStatus = int(*tmp.HttpStatus)
 	}
 
 	if tmp.NumRecords != nil {
-		if *tmp.NumRecords <= 0 {
-			return fmt.Errorf("num_records %d: must be greater than 0", *tmp.NumRecords)
+		if *tmp.NumRecords == 0 {
+			return E.New("num_records cannot be 0")
 		}
-		p.NumRecords = *tmp.NumRecords
+		p.NumRecords = int(*tmp.NumRecords)
 	}
 
 	if tmp.NumSegments != nil {
-		if *tmp.NumSegments == 0 || *tmp.NumSegments < -1 {
-			return fmt.Errorf("num_segs %d: outside the valid range", *tmp.NumSegments)
+		if *tmp.NumSegments == 0 {
+			return E.New("num_segs cannot be 0")
 		}
 		p.NumSegments = *tmp.NumSegments
 	}
 
 	if tmp.FakeTTL == nil {
 		p.FakeTTL = unsetInt
-	} else if *tmp.FakeTTL < 0 || *tmp.FakeTTL > 255 {
-		return fmt.Errorf("fake_ttl %d: outside the valid range", *tmp.FakeTTL)
 	} else {
-		p.FakeTTL = *tmp.FakeTTL
+		p.FakeTTL = int(*tmp.FakeTTL)
 	}
 
 	if tmp.Attempts != nil {
-		if *tmp.Attempts < 1 {
-			return fmt.Errorf("attempts %d: must be greater than 1", *tmp.Attempts)
+		if *tmp.Attempts == 0 {
+			return E.New("attempts cannot be 0")
 		}
-		p.Attempts = *tmp.Attempts
+		p.Attempts = int(*tmp.Attempts)
 	}
 
 	if tmp.MaxTTL != nil {
-		if *tmp.MaxTTL <= 1 || *tmp.MaxTTL > 255 {
-			return fmt.Errorf("max_ttl %d: outside the valid range", *tmp.MaxTTL)
+		if *tmp.MaxTTL == 0 {
+			return E.New("max_ttl cannot be 0")
 		}
-		p.MaxTTL = *tmp.MaxTTL
+		p.MaxTTL = int(*tmp.MaxTTL)
 	}
 
 	var err error
