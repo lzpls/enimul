@@ -132,19 +132,13 @@ const (
 	BoolTrue
 )
 
-func (b TriBool) IsTrue() bool {
-	return b == BoolTrue
-}
+func (b TriBool) IsTrue() bool { return b == BoolTrue }
 
-func (b TriBool) IsUnset() bool {
-	return b == BoolUnset
-}
+func (b TriBool) IsUnset() bool { return b == BoolUnset }
 
 func (b *TriBool) UnmarshalJSON(data []byte) error {
 	s := string(data)
 	switch s {
-	case "null":
-		*b = BoolUnset
 	case "false":
 		*b = BoolFalse
 	case "true":
@@ -189,21 +183,21 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		ConnectTimeout    *string           `json:"connect_timeout"`
 		Host              *string           `json:"host"`
 		MapTo             *string           `json:"map_to"`
-		Port              *uint16              `json:"port"`
+		Port              *uint16           `json:"port"`
 		DNSMode           DNSMode           `json:"dns_mode"`
-		HttpStatus        *uint              `json:"http_status"`
+		HttpStatus        *uint             `json:"http_status"`
 		TLS13Only         TriBool           `json:"tls13_only"`
 		Mode              Mode              `json:"mode"`
-		NumRecords        *uint              `json:"num_records"`
+		NumRecords        *uint             `json:"num_records"`
 		NumSegments       *int              `json:"num_segs"`
 		WaitForAck        TriBool           `json:"wait_for_ack"`
 		OOB               TriBool           `json:"oob"`
 		OOBEx             TriBool           `json:"oob_ex"`
 		ModMinorVer       TriBool           `json:"mod_minor_ver"`
 		SendInterval      *string           `json:"send_interval"`
-		FakeTTL           *uint8              `json:"fake_ttl"`
+		FakeTTL           *uint8            `json:"fake_ttl"`
 		FakeSleep         *string           `json:"fake_sleep"`
-		MaxTTL            *uint8              `json:"max_ttl"`
+		MaxTTL            *uint8            `json:"max_ttl"`
 		Attempts          *uint             `json:"attempts"`
 		SingleTimeout     *string           `json:"single_timeout"`
 	}
