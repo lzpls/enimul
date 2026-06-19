@@ -25,7 +25,7 @@ func ParseLevel(s string) (Level, error) {
 		return LevelDebug, nil
 	case "INFO", "info":
 		return LevelInfo, nil
-	case "WARN", "warn":
+	case "WARN", "warn", "WARNING", "warning":
 		return LevelWarn, nil
 	case "ERROR", "error":
 		return LevelError, nil
@@ -61,7 +61,7 @@ func appendLevel(b []byte, lvl Level) []byte {
 	case LevelError:
 		return append(b, "ERROR "...)
 	case Disabled:
-		panic("unexpected append disabled level")
+		panic("appendLevel: unexpected Disabled log level")
 	}
-	panic(fmt.Sprintf("unknown level: %d", lvl))
+	panic(fmt.Sprintf("appendLevel: unknown log level: %d", lvl))
 }
