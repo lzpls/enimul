@@ -682,23 +682,7 @@ func genPolicy(logger log.Logger, originHost string, isIP, returnWhenDomainNotFo
 	}
 
 	if dstHost == "" {
-		var logPrefix string
-		if foundInHosts {
-			logPrefix = "Host (from hosts): "
-		} else {
-			logPrefix = "Host: "
-		}
-		switch {
-		case selectedHost == "self":
-			dstHost = originHost
-			logger.Info(logPrefix, originHost)
-		case strings.HasPrefix(selectedHost, ipPoolTagPrefix):
-			if dstHost, err = getFromIPPool(selectedHost[1:]); err != nil {
-				logger.Error(err)
-				return "", nil, true, false, false
-			}
-			logger.Info(logPrefix, selectedHost, " -> ", dstHost)
-		case strings.HasPrefix(selectedHost, resolvePrefix):
+		if strings.HasPrefix(selectedHost, resolvePrefix) {
 			selectedHost = selectedHost[1:]
 			var cached bool
 			dstHost, cached, err = dnsResolve(selectedHost, p.DNSMode)
@@ -713,9 +697,27 @@ func genPolicy(logger log.Logger, originHost string, isIP, returnWhenDomainNotFo
 				logPrefix = "DNS: "
 			}
 			logger.Info(logPrefix, originHost, " -> ", selectedHost, " -> ", dstHost)
-		default:
-			dstHost = selectedHost
-			logger.Info(logPrefix, dstHost)
+		} else {
+			var logPrefix string
+			if foundInHosts {
+				logPrefix = "Host (from hosts): "
+			} else {
+				logPrefix = "Host: "
+			}
+			switch {
+			case selectedHost == "self":
+				dstHost = originHost
+				logger.Info(logPrefix, originHost)
+			case strings.HasPrefix(selectedHost, ipPoolTagPrefix):
+				if dstHost, err = getFromIPPool(selectedHost[1:]); err != nil {
+					logger.Error(err)
+					return "", nil, true, false, false
+				}
+				logger.Info(logPrefix, selectedHost, " -> ", dstHost)
+			default:
+				dstHost = selectedHost
+				logger.Info(logPrefix, dstHost)
+			}
 		}
 	}
 
