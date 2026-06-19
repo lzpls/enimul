@@ -91,11 +91,7 @@ func socks5Handler(cliConn net.Conn, id uint32) {
 	)
 	defer func() {
 		if closeHere {
-			if err := cliConn.Close(); err == nil {
-				logger.Debug("Closed client conn")
-			} else {
-				logger.Debug("Close client conn: ", err)
-			}
+			cliConn.Close()
 		}
 	}()
 
