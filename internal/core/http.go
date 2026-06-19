@@ -138,11 +138,7 @@ func handleConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) 
 	)
 	defer func() {
 		if closeHere {
-			if err := cliConn.Close(); err == nil {
-				logger.Debug("Closed client conn")
-			} else {
-				logger.Debug("Close client conn: ", err)
-			}
+			cliConn.Close()
 		}
 	}()
 

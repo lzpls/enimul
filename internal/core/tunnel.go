@@ -137,11 +137,7 @@ func handleHTTP(
 	p *Policy, originHost, oldTarget, target string,
 	cliConn, dstConn net.Conn) (newConn net.Conn, ok bool) {
 	var err error
-	defer func() {
-		if err := req.Body.Close(); err != nil {
-			logger.Debug("Close HTTP body: ", err)
-		}
-	}()
+	defer req.Body.Close()
 
 	host := req.Host
 	if host == "" {
