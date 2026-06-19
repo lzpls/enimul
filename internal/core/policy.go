@@ -149,6 +149,29 @@ func (b *TriBool) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type Byte struct {
+	b     byte
+	valid bool
+}
+
+func (b Byte) IsUnset() bool { return !b.valid }
+
+func (b Byte) Byte() byte { return b.b }
+
+func (b *Byte) Set(x byte) {
+	b.valid = true
+	b.b = x
+}
+
+func (b *Byte) UnmarshalJSON(data []byte) error {
+	var x byte
+	if err := json.Unmarshal(data, &x); err != nil {
+		return err
+	}
+	b.Set(x)
+	return nil
+}
+
 type Policy struct {
 	ReplyFirst        TriBool
 	SniffOverrideMode SniffOverrideMode
@@ -167,7 +190,7 @@ type Policy struct {
 	WaitForAck   TriBool
 	OOB          TriBool
 	OOBEx        TriBool
-	ModMinorVer  TriBool
+	MinorVer     Byte
 	SendInterval time.Duration
 
 	FakeTTL       int
@@ -196,7 +219,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		WaitForAck        TriBool           `json:"wait_for_ack"`
 		OOB               TriBool           `json:"oob"`
 		OOBEx             TriBool           `json:"oob_ex"`
-		ModMinorVer       TriBool           `json:"mod_minor_ver"`
+		MinorVer          Byte              `json:"minor_ver"`
 		SendInterval      *string           `json:"send_interval"`
 		FakeTTL           *uint8            `json:"fake_ttl"`
 		FakeSleep         *string           `json:"fake_sleep"`
@@ -216,7 +239,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	p.DNSMode = tmp.DNSMode
 	p.OOB = tmp.OOB
 	p.OOBEx = tmp.OOBEx
-	p.ModMinorVer = tmp.ModMinorVer
+	p.MinorVer = tmp.MinorVer
 	p.WaitForAck = tmp.WaitForAck
 
 	if tmp.Host == nil {
@@ -380,8 +403,8 @@ func (p Policy) String() string {
 	fields = append(fields, p.Mode.String())
 	switch p.Mode {
 	case ModeTLSRF:
-		if p.ModMinorVer.IsTrue() {
-			fields = append(fields, "mod_minor_ver")
+		if !p.MinorVer.IsUnset() {
+			fields = append(fields, "minor_ver="+F.Uint(p.MinorVer.Byte()))
 		}
 		if p.NumRecords != unsetInt && p.NumRecords != 1 {
 			fields = append(fields, F.Int(p.NumRecords)+" records")
@@ -484,8 +507,8 @@ func mergePolicies(policies ...*Policy) *Policy {
 		if merged.OOBEx.IsUnset() && !p.OOBEx.IsUnset() {
 			merged.OOBEx = p.OOBEx
 		}
-		if merged.ModMinorVer.IsUnset() && !p.ModMinorVer.IsUnset() {
-			merged.ModMinorVer = p.ModMinorVer
+		if merged.MinorVer.IsUnset() && !p.MinorVer.IsUnset() {
+			merged.MinorVer = p.MinorVer
 		}
 		if merged.SendInterval == unsetInt && p.SendInterval != unsetInt {
 			merged.SendInterval = p.SendInterval
@@ -578,8 +601,9 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 	case ModeTLSRF:
 		if err = sendRecords(c.Conn, b, sniStart, sniLen,
 			dohConnPolicy.NumRecords, dohConnPolicy.NumSegments,
+			dohConnPolicy.MinorVer,
 			dohConnPolicy.OOB.IsTrue(), dohConnPolicy.OOBEx.IsTrue(),
-			dohConnPolicy.ModMinorVer.IsTrue(), dohConnPolicy.WaitForAck.IsTrue(),
+			dohConnPolicy.WaitForAck.IsTrue(),
 			dohConnPolicy.SendInterval); err != nil {
 			return 0, E.WithStr("tls fragment", err)
 		}

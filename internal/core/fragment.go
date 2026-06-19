@@ -19,11 +19,11 @@ func findLastDotOrMidPos(data []byte, sniStart, sniLen int) int {
 }
 
 func sendRecords(conn net.Conn, clientHello []byte,
-	offset, length, records, segments int,
-	oob, oobex, modMinorVer, waitForAckEnabled bool,
+	offset, length, records, segments int, minorVersion Byte,
+	oob, oobex, waitForAckEnabled bool,
 	interval time.Duration) error {
-	if modMinorVer {
-		clientHello[2] = 0x4
+	if !minorVersion.IsUnset() {
+		clientHello[2] = minorVersion.Byte()
 	}
 
 	if records == 1 {

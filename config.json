@@ -61,7 +61,7 @@
     "tls13_only": false,
     "http_status": 0,
     "mode": "tls-rf",
-    "mod_minor_ver": true,
+    "minor_ver": 4,
     "num_records": 4,
     "num_segs": 1,
     "wait_for_ack": true,

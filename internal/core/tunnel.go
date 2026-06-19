@@ -301,9 +301,9 @@ func handleTLS(logger log.Logger, recordLen int,
 		logger.Info("Sent ClientHello directly")
 	case ModeTLSRF:
 		err = sendRecords(dstConn, record, sniStart, sniLen,
-			p.NumRecords, p.NumSegments,
+			p.NumRecords, p.NumSegments, p.MinorVer,
 			p.OOB.IsTrue(), p.OOBEx.IsTrue(),
-			p.ModMinorVer.IsTrue(), p.WaitForAck.IsTrue(), p.SendInterval)
+			p.WaitForAck.IsTrue(), p.SendInterval)
 		if err != nil {
 			logger.Error("TLS fragment: ", err)
 			return
