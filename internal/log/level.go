@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type Level int8
@@ -19,7 +18,7 @@ const (
 )
 
 func ParseLevel(s string) (Level, error) {
-	switch strings.TrimSpace(s) {
+	switch s {
 	case "TRACE", "trace":
 		return LevelTrace, nil
 	case "DEBUG", "debug":

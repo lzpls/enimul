@@ -3,7 +3,6 @@ package core
 import (
 	"io"
 	"os"
-	"strings"
 
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/log"
@@ -15,7 +14,7 @@ var (
 )
 
 func setLogOutput(out string) error {
-	switch strings.TrimSpace(out) {
+	switch out {
 	case "stderr":
 		logOutput = os.Stderr
 	case "", "stdout": // default
