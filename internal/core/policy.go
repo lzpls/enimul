@@ -356,15 +356,20 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 }
 
 func (p Policy) String() string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 13)
 	if p.ConnectTimeout != 0 {
 		fields = append(fields, "timeout="+p.ConnectTimeout.String())
 	}
 	if p.Port != unsetInt && p.Port != 0 {
 		fields = append(fields, ":"+F.Int(p.Port))
 	}
-	if p.DNSMode != DNSModeUnset && (p.Host == "" || p.Host == unsetString) {
-		fields = append(fields, p.DNSMode.String())
+	if p.Host == "" || p.Host == unsetString {
+		if p.DNSMode != DNSModeUnset {
+			fields = append(fields, p.DNSMode.String())
+		}
+		if p.DNSCacheTTL > 0 {
+			fields = append(fields, "dns_cache_ttl="+p.DNSCacheTTL.String())
+		}
 	}
 	if p.HttpStatus > 0 {
 		fields = append(fields, "http_status="+F.Int(p.HttpStatus))
@@ -406,12 +411,15 @@ func (p Policy) String() string {
 			if p.SingleTimeout != 0 {
 				fields = append(fields, "single_timeout="+p.SingleTimeout.String())
 			}
+			if p.TTLCacheTTL > 0 {
+				fields = append(fields, "ttl_cache_ttl="+p.TTLCacheTTL.String())
+			}
 		} else {
 			fields = append(fields, "fake_ttl="+F.Int(p.FakeTTL))
 		}
 		fields = append(fields, "fake_sleep="+p.FakeSleep.String())
 	}
-	return strings.Join(fields, ", ")
+	return strings.Join(fields, " ")
 }
 
 func mergePolicies(policies ...*Policy) *Policy {
@@ -425,6 +433,7 @@ func mergePolicies(policies ...*Policy) *Policy {
 		ConnectTimeout: unsetInt,
 		SingleTimeout:  unsetInt,
 		DNSCacheTTL:    unsetInt,
+		TTLCacheTTL:    unsetInt,
 	}
 	for _, p := range policies {
 		if merged.SniffOverrideMode == SniffOverrideUnset && p.SniffOverrideMode != SniffOverrideUnset {

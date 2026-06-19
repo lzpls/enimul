@@ -235,7 +235,7 @@ func probeMinimumReachableTTL(
 		}
 	}
 
-	if found != -1 && ttlCache != nil && cacheTTL != 0 {
+	if found != -1 && ttlCache != nil && cacheTTL != 0 && cacheTTL != unsetInt {
 		ttlCache.AddWithLifetime(ip, found, cacheTTL)
 	}
 	return found, nil
