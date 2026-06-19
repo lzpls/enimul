@@ -49,15 +49,15 @@ func LoadConfig(filePath string) (string, string, error) {
 	}
 	file.Close()
 
-	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
-		return "", "", err
-	}
-	dial.SetLogger(newLogger("[dial]"))
-
 	if err := setLogOutput(conf.LogOutput); err != nil {
 		return "", "", err
 	}
 	logLevel = conf.LogLevel
+
+	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
+		return "", "", err
+	}
+	dial.SetLogger(newLogger("[dial]"))
 
 	if len(conf.IPPools) > 0 {
 		ipPools = conf.IPPools
