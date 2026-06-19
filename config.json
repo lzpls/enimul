@@ -24,9 +24,11 @@
     "edns0_subnet": "",
     "doh_socks5_addr": ""
   },
-  "ttl_cache_ttl": 86400,
-  "ttl_cache_cap": 1024,
-  "fake_ttl_rules": "0-1;3=3;5-1;8-2;13-3;20=18",
+  "ttl_probing": {
+    "fake_ttl_rules": "0-1;3=3;5-1;8-2;13-3;20=18",
+    "disable_cache": false,
+    "cache_capacity": 1024
+  },
   "hosts": {
     "*vercel.app": "64.29.17.1",
     "*(threads|cdninstagram|instagram).com": "57.144.74.192",
@@ -70,7 +72,8 @@
     "fake_sleep": "200ms",
     "attempts": 2,
     "max_ttl": 64,
-    "single_timeout": "500ms"
+    "single_timeout": "500ms",
+    "ttl_cache_ttl": "24h"
   },
   "ip_policies": {
     "10.0.0.0/8;172.16.0.0/12;192.168.0.0/16;fc00::/7": {

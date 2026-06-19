@@ -17,17 +17,37 @@ import (
 	"github.com/lzpls/enimul/internal/singleflight"
 )
 
-const minInterval = 100 * time.Millisecond
-
 var (
 	calcTTL         func(int) (int, error)
 	ttlCache        *freelru.ShardedLRU[string, int]
-	ttlCacheTTL     time.Duration
-	ttlSingleflight *singleflight.Group[string, int]
+	ttlProbingGroup *singleflight.Group[string, int]
 )
 
-type timeoutError interface {
-	Timeout() bool
+type TTLProbingConfig struct {
+	FakeTTLRules  string `json:"fake_ttl_rules"`
+	SingleFlight  bool   `json:"singleflight"`
+	DisableCache  bool   `json:"disable_cache"`
+	CacheCapacity uint32 `json:"cache_capacity"`
+}
+
+func setTTLProbing(c TTLProbingConfig) error {
+	if err := loadTTLRules(c.FakeTTLRules); err != nil {
+		return err
+	}
+	if c.SingleFlight {
+		ttlProbingGroup = new(singleflight.Group[string, int])
+	}
+	if !c.DisableCache {
+		if c.CacheCapacity == 0 {
+			c.CacheCapacity = 1024
+		}
+		var err error
+		ttlCache, err = freelru.NewSharded[string, int](c.CacheCapacity, hashStringXXHASH)
+		if err != nil {
+			return E.WithStr("init TTL cache", err)
+		}
+	}
+	return nil
 }
 
 type ttlRule struct {
@@ -114,7 +134,7 @@ func loadTTLRules(conf string) error {
 	return nil
 }
 
-func getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout time.Duration) (int, bool, error) {
+func getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
 	ip, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return 0, false, err
@@ -126,42 +146,39 @@ func getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTi
 		}
 	}
 
-	found := unsetInt
-	if ttlSingleflight != nil {
-		found, err, _ = ttlSingleflight.Do(addr, func() (int, error) {
-			return probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout)
+	ttl := -1
+	if ttlProbingGroup != nil {
+		ttl, err, _ = ttlProbingGroup.Do(addr, func() (int, error) {
+			return probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
 		})
 	} else {
-		found, err = probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout)
+		ttl, err = probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
 	}
-	return found, false, err
+	return ttl, false, err
 }
 
-func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (ttl int, err error) {
-	if p.FakeTTL == 0 || p.FakeTTL == unsetInt {
-		var cached bool
-		ttl, cached, err = getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout)
-		if err != nil {
-			return unsetInt, E.WithStr("probe minimum reachable ttl", err)
-		}
-		if ttl == unsetInt {
-			return unsetInt, E.New("reachable ttl not found")
-		}
-		ttl, err = calcTTL(ttl)
-		if err != nil {
-			return unsetInt, E.WithStr("calculate fake ttl", err)
-		}
-		if logger != nil {
-			if cached {
-				logger.Info("Fake TTL for ", addr, " (cached): ", ttl)
-			} else {
-				logger.Info("Fake TTL for ", addr, ": ", ttl)
-			}
-		}
-	} else {
-		ttl = p.FakeTTL
+func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (int, error) {
+	if p.FakeTTL != 0 && p.FakeTTL != unsetInt {
+		return p.FakeTTL, nil
 	}
-	return
+	ttl, cached, err := getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
+	if err != nil {
+		return -1, E.WithStr("get minimum reachable TTL", err)
+	}
+	if ttl == unsetInt {
+		return -1, E.New("reachable TTL not found")
+	}
+	if ttl, err = calcTTL(ttl); err != nil {
+		return -1, E.WithStr("calculate fake TTL", err)
+	}
+	if logger != nil {
+		if cached {
+			logger.Info("Fake TTL for ", addr, " (cached): ", ttl)
+		} else {
+			logger.Info("Fake TTL for ", addr, ": ", ttl)
+		}
+	}
+	return ttl, nil
 }
 
 func ttlLevelOption(isIPv6 bool) (int, int) {
@@ -174,14 +191,18 @@ func ttlLevelOption(isIPv6 bool) (int, int) {
 func probeMinimumReachableTTL(
 	ip, addr string, isIPv6 bool,
 	maxTTL, attempts int,
-	dialTimeout time.Duration,
+	dialTimeout, cacheTTL time.Duration,
 ) (int, error) {
+	type timeoutError interface {
+		Timeout() bool
+	}
+
 	level, opt := ttlLevelOption(isIPv6)
 	dialer := dial.NewDialer(isIPv6)
 	dialer.Timeout = dialTimeout
 
 	low, high := 1, maxTTL
-	found := unsetInt
+	found := -1
 
 	for low <= high {
 		mid := (low + high) / 2
@@ -214,8 +235,51 @@ func probeMinimumReachableTTL(
 		}
 	}
 
-	if ttlCache != nil && found != unsetInt {
-		ttlCache.AddWithLifetime(ip, found, ttlCacheTTL)
+	if found != -1 && ttlCache != nil && cacheTTL != 0 {
+		ttlCache.AddWithLifetime(ip, found, cacheTTL)
 	}
 	return found, nil
+}
+
+func desyncSend(
+	conn net.Conn, isIPv6 bool,
+	record []byte, sniStart, sniLen int,
+	fakeTTL int, fakeSleep time.Duration,
+) error {
+	rawConn, err := getRawConn(conn)
+	if err != nil {
+		return err
+	}
+
+	level, opt := ttlLevelOption(isIPv6)
+	var defaultTTL int
+	var innerErr error
+	if err = rawConn.Control(func(fd uintptr) {
+		defaultTTL, innerErr = syscall.GetsockoptInt(platform.FD(fd), level, opt)
+	}); err != nil {
+		return E.WithStr("raw control", err)
+	}
+	if innerErr != nil {
+		return E.WithStr("get default ttl", err)
+	}
+
+	cut := findLastDotOrMidPos(record, sniStart, sniLen)
+	fakeData := make([]byte, cut)
+	copy(fakeData, record[:sniStart])
+	const minInterval = 100 * time.Millisecond
+	fakeSleep = max(minInterval, fakeSleep)
+
+	if err = sendWithNoise(
+		rawConn,
+		fakeData, record[:cut],
+		fakeTTL, defaultTTL,
+		level, opt,
+		fakeSleep,
+	); err != nil {
+		return E.WithStr("send data with noise", err)
+	}
+	if _, err = conn.Write(record[cut:]); err != nil {
+		return E.WithStr("send remaining data", err)
+	}
+	return nil
 }

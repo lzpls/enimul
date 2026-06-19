@@ -7,20 +7,16 @@ import (
 	"time"
 
 	E "github.com/lzpls/enimul/internal/errors"
-	"github.com/lzpls/enimul/internal/freelru"
+	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
-	"github.com/lzpls/enimul/internal/singleflight"
 )
 
 var errTTLDNotSupported = E.New("`ttl-d` is not supported on current system")
 
-var (
-	ttlCache        *freelru.ShardedLRU[string, int]
-	ttlCacheTTL     time.Duration
-	ttlSingleflight *singleflight.Group[string, int]
-)
+type TTLProbingConfig struct{}
 
-func loadTTLRules(string) error {
+func setTTLProbing(TTLProbingConfig) error {
+	F.Println("Warning:", errTTLDNotSupported)
 	return nil
 }
 

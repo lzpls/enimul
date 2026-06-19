@@ -175,6 +175,7 @@ type Policy struct {
 	MaxTTL        int
 	Attempts      int
 	SingleTimeout time.Duration
+	TTLCacheTTL   time.Duration
 }
 
 func (p *Policy) UnmarshalJSON(data []byte) error {
@@ -202,6 +203,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		MaxTTL            *uint8            `json:"max_ttl"`
 		Attempts          *uint             `json:"attempts"`
 		SingleTimeout     *string           `json:"single_timeout"`
+		TTLCacheTTL       *string           `json:"ttl_cache_ttl"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -333,8 +335,20 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("parse dns_cache_ttl %s: %w", *tmp.DNSCacheTTL, err)
 		}
-		if p.DNSCacheTTL <= 0 {
-			return fmt.Errorf("dns_cache_ttl %s: must be greater than 0", *tmp.DNSCacheTTL)
+		if p.DNSCacheTTL < 0 {
+			return fmt.Errorf("dns_cache_ttl %s: must be greater than -1", *tmp.DNSCacheTTL)
+		}
+	}
+
+	if tmp.TTLCacheTTL == nil {
+		p.TTLCacheTTL = unsetInt
+	} else {
+		p.TTLCacheTTL, err = time.ParseDuration(*tmp.TTLCacheTTL)
+		if err != nil {
+			return fmt.Errorf("parse ttl_cache_ttl %s: %w", *tmp.TTLCacheTTL, err)
+		}
+		if p.TTLCacheTTL < 0 {
+			return fmt.Errorf("ttl_cache_ttl %s: must be greater than -1", *tmp.TTLCacheTTL)
 		}
 	}
 
@@ -481,6 +495,9 @@ func mergePolicies(policies ...*Policy) *Policy {
 		}
 		if merged.SingleTimeout == unsetInt && p.SingleTimeout != unsetInt {
 			merged.SingleTimeout = p.SingleTimeout
+		}
+		if merged.TTLCacheTTL == unsetInt && p.TTLCacheTTL != unsetInt {
+			merged.TTLCacheTTL = p.TTLCacheTTL
 		}
 	}
 	if merged.Mode == ModeUnset {

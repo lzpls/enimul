@@ -3,7 +3,6 @@
 package core
 
 import (
-	"net"
 	"syscall"
 	"time"
 	"unsafe"
@@ -15,12 +14,19 @@ import (
 )
 
 func sendWithNoise(
-	socketFD int, rawConn syscall.RawConn,
+	rawConn syscall.RawConn,
 	fakeData, realData []byte,
 	fakeTTL, defaultTTL, level, opt int,
 	fakeSleep time.Duration,
 ) error {
 	// TODO: cache pipes with a sync.Pool
+	var sockFD int
+	if err := rawConn.Control(func(raw uintptr) {
+		sockFD = int(raw)
+	}); err != nil {
+		return E.WithStr("raw control", err)
+	}
+
 	var pipeFDs [2]int
 	if err := syscall.Pipe2(pipeFDs[:], syscall.O_CLOEXEC|syscall.O_NONBLOCK); err != nil {
 		return E.WithStr("create pipe", err)
@@ -41,7 +47,7 @@ func sendWithNoise(
 	defer syscall.Munmap(data)
 	copy(data, fakeData)
 
-	if err := syscall.SetsockoptInt(socketFD, level, opt, fakeTTL); err != nil {
+	if err := syscall.SetsockoptInt(sockFD, level, opt, fakeTTL); err != nil {
 		return E.WithStr("set fake ttl", err)
 	}
 	if _, err := unix.Vmsplice(pipeW, []unix.Iovec{{
@@ -80,7 +86,7 @@ func sendWithNoise(
 
 	copy(data, realData) // will be sent automatically by the system.
 
-	if err := syscall.SetsockoptInt(socketFD, level, opt, defaultTTL); err != nil {
+	if err := syscall.SetsockoptInt(sockFD, level, opt, defaultTTL); err != nil {
 		return E.WithStr("set default ttl", err)
 	}
 
@@ -89,49 +95,4 @@ func sendWithNoise(
 		return E.WithStr("raw write", rawWriteErr)
 	}
 	return E.WithStr("splice", spliceErr)
-}
-
-func desyncSend(
-	conn net.Conn, isIPv6 bool,
-	record []byte, sniStart, sniLen int,
-	fakeTTL int, fakeSleep time.Duration,
-) error {
-	rawConn, err := getRawConn(conn)
-	if err != nil {
-		return err
-	}
-
-	var fd int
-	if err = rawConn.Control(func(fileDesc uintptr) {
-		fd = int(fileDesc)
-	}); err != nil {
-		return E.WithStr("raw control", err)
-	}
-
-	level, opt := ttlLevelOption(isIPv6)
-	defaultTTL, err := syscall.GetsockoptInt(fd, level, opt)
-	if err != nil {
-		return E.WithStr("get default ttl", err)
-	}
-
-	cut := findLastDotOrMidPos(record, sniStart, sniLen)
-	fakeData := make([]byte, cut)
-	copy(fakeData, record[:sniStart])
-	fakeSleep = max(minInterval, fakeSleep)
-
-	if err = sendWithNoise(
-		fd, rawConn,
-		fakeData,
-		record[:cut],
-		fakeTTL,
-		defaultTTL,
-		level, opt,
-		fakeSleep,
-	); err != nil {
-		return E.WithStr("send data with noise", err)
-	}
-	if _, err = conn.Write(record[cut:]); err != nil {
-		return E.WithStr("send remaining data", err)
-	}
-	return nil
 }

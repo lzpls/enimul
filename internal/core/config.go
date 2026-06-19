@@ -4,14 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/lzpls/enimul/internal/addrtrie"
 	"github.com/lzpls/enimul/internal/dial"
-	E "github.com/lzpls/enimul/internal/errors"
-	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/log"
-	"github.com/lzpls/enimul/internal/singleflight"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -23,6 +19,7 @@ type Config struct {
 	HttpAddr         string             `json:"http_address"`
 	OutboundBinding  dial.BindingOption `json:"outbound_binding"`
 	DNSConfig        DNSConfig          `json:"dns"`
+	TTLProbingConfig TTLProbingConfig   `json:"ttl_probing"`
 	FakeTTLRules     string             `json:"fake_ttl_rules"`
 	DNSSingleflight  bool               `json:"dns_singleflight"`
 	DNSCacheTTL      int                `json:"dns_cache_ttl"`
@@ -66,27 +63,6 @@ func LoadConfig(filePath string) (string, string, error) {
 		}
 	}
 
-	if conf.TTLSingleflight {
-		ttlSingleflight = new(singleflight.Group[string, int])
-	}
-	if conf.TTLCacheTTL < 0 {
-		return "", "", E.NewAny("invalid ttl_cache_ttl: ", conf.TTLCacheTTL)
-	}
-	if conf.TTLCacheTTL != 0 {
-		if conf.TTLCacheCapacity == 0 {
-			conf.TTLCacheCapacity = 1024
-		}
-		ttlCache, err = freelru.NewSharded[string, int](conf.TTLCacheCapacity, hashStringXXHASH)
-		if err != nil {
-			return "", "", E.WithStr("init ttl cache", err)
-		}
-		ttlCacheTTL = time.Duration(conf.TTLCacheTTL) * time.Second
-	}
-
-	if err = loadTTLRules(conf.FakeTTLRules); err != nil {
-		return "", "", E.WithStr("load fake ttl rules", err)
-	}
-
 	defaultPolicy = conf.DefaultPolicy
 
 	hostsMatcher = addrtrie.NewDomainMatcher[string]()
@@ -121,7 +97,11 @@ func LoadConfig(filePath string) (string, string, error) {
 		}
 	}
 
-	if err := setDNS(conf.DNSConfig); err != nil {
+	if err = setDNS(conf.DNSConfig); err != nil {
+		return "", "", err
+	}
+
+	if err = setTTLProbing(conf.TTLProbingConfig); err != nil {
 		return "", "", err
 	}
 

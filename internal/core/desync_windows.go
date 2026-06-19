@@ -4,7 +4,6 @@ package core
 
 import (
 	"io"
-	"net"
 	"os"
 	"syscall"
 	"time"
@@ -17,13 +16,14 @@ import (
 var transmitFileSem chan struct{}
 
 func init() {
-	if windows.RtlGetVersion().ProductType == 0x00000001 { // VER_NT_WORKSTATION
+	const VER_NT_WORKSTATION = 0x0000001
+	if windows.RtlGetVersion().ProductType == VER_NT_WORKSTATION {
 		transmitFileSem = make(chan struct{}, 2)
 	}
 }
 
 func sendWithNoise(
-	sockHandle windows.Handle,
+	rawConn syscall.RawConn,
 	fakeData, realData []byte,
 	fakeTTL, defaultTTL, level, opt int,
 	fakeSleep time.Duration,
@@ -32,6 +32,13 @@ func sendWithNoise(
 	fakeDataLen := len(fakeData)
 	if fakeDataLen != realDataLen {
 		return E.NewAny("invalid data length (fake=", fakeDataLen, ",real=", realDataLen, ")")
+	}
+
+	var sockHandle windows.Handle
+	if err := rawConn.Control(func(fd uintptr) {
+		sockHandle = windows.Handle(fd)
+	}); err != nil {
+		return E.WithStr("raw control", err)
 	}
 
 	tmpFile, err := os.CreateTemp("", "")
@@ -68,20 +75,20 @@ func sendWithNoise(
 	if err != nil {
 		return E.WithStr("create event", err)
 	}
+	defer windows.CloseHandle(he)
 	ov := windows.Overlapped{HEvent: he}
-	defer windows.CloseHandle(ov.HEvent)
 
 	if transmitFileSem != nil {
 		transmitFileSem <- struct{}{}
 		defer func() { <-transmitFileSem }()
 	}
 
-	rawConn, err := getRawConn(tmpFile)
+	fileRawConn, err := getRawConn(tmpFile)
 	if err != nil {
 		return err
 	}
 	var transmitFileErr error
-	rawCtrlErr := rawConn.Control(func(fd uintptr) {
+	rawCtrlErr := fileRawConn.Control(func(fd uintptr) {
 		toWrite := uint32(realDataLen)
 		transmitFileErr = windows.TransmitFile(
 			sockHandle,
@@ -149,49 +156,6 @@ func sendWithNoise(
 	}
 	if int(n) < realDataLen {
 		return E.NewAny("sent only ", n, " of ", realDataLen, " bytes")
-	}
-	return nil
-}
-
-func desyncSend(
-	conn net.Conn, isIPv6 bool,
-	record []byte, sniStart, sniLen, fakeTTL int, fakeSleep time.Duration,
-) error {
-	rawConn, err := getRawConn(conn)
-	if err != nil {
-		return err
-	}
-
-	var sockHandle windows.Handle
-	controlErr := rawConn.Control(func(fd uintptr) {
-		sockHandle = windows.Handle(fd)
-	})
-	if controlErr != nil {
-		return E.WithStr("raw control", err)
-	}
-
-	level, opt := ttlLevelOption(isIPv6)
-	defaultTTL, err := windows.GetsockoptInt(sockHandle, level, opt)
-	if err != nil {
-		return E.WithStr("get default ttl", err)
-	}
-
-	cut := findLastDotOrMidPos(record, sniStart, sniLen)
-	fakeData := make([]byte, cut)
-	copy(fakeData, record[:sniStart])
-	fakeSleep = max(minInterval, fakeSleep)
-
-	if err = sendWithNoise(
-		sockHandle,
-		fakeData, record[:cut],
-		fakeTTL, defaultTTL,
-		level, opt,
-		fakeSleep,
-	); err != nil {
-		return E.WithStr("send data with noise", err)
-	}
-	if _, err = conn.Write(record[cut:]); err != nil {
-		return E.WithStr("send remaining data", err)
 	}
 	return nil
 }
