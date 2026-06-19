@@ -153,6 +153,7 @@ type Policy struct {
 	ReplyFirst        TriBool
 	SniffOverrideMode SniffOverrideMode
 	DNSMode           DNSMode
+	DNSCacheTTL       time.Duration
 	ConnectTimeout    time.Duration
 	Host              string
 	MapTo             string
@@ -185,6 +186,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		MapTo             *string           `json:"map_to"`
 		Port              *uint16           `json:"port"`
 		DNSMode           DNSMode           `json:"dns_mode"`
+		DNSCacheTTL       *string           `json:"dns_cache_ttl"`
 		HttpStatus        *uint             `json:"http_status"`
 		TLS13Only         TriBool           `json:"tls13_only"`
 		Mode              Mode              `json:"mode"`
@@ -324,6 +326,18 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		}
 	}
 
+	if tmp.DNSCacheTTL == nil {
+		p.DNSCacheTTL = unsetInt
+	} else {
+		p.DNSCacheTTL, err = time.ParseDuration(*tmp.DNSCacheTTL)
+		if err != nil {
+			return fmt.Errorf("parse dns_cache_ttl %s: %w", *tmp.DNSCacheTTL, err)
+		}
+		if p.DNSCacheTTL <= 0 {
+			return fmt.Errorf("dns_cache_ttl %s: must be greater than 0", *tmp.DNSCacheTTL)
+		}
+	}
+
 	return nil
 }
 
@@ -396,6 +410,7 @@ func mergePolicies(policies ...*Policy) *Policy {
 		FakeTTL:        unsetInt,
 		ConnectTimeout: unsetInt,
 		SingleTimeout:  unsetInt,
+		DNSCacheTTL:    unsetInt,
 	}
 	for _, p := range policies {
 		if merged.SniffOverrideMode == SniffOverrideUnset && p.SniffOverrideMode != SniffOverrideUnset {
@@ -427,6 +442,9 @@ func mergePolicies(policies ...*Policy) *Policy {
 		}
 		if merged.DNSMode == DNSModeUnset && p.DNSMode != DNSModeUnset {
 			merged.DNSMode = p.DNSMode
+		}
+		if merged.DNSCacheTTL == unsetInt && p.DNSCacheTTL != unsetInt {
+			merged.DNSCacheTTL = p.DNSCacheTTL
 		}
 		if merged.NumRecords == 0 && p.NumRecords != 0 {
 			merged.NumRecords = p.NumRecords
@@ -666,7 +684,7 @@ func genPolicy(logger log.Logger, originHost string, isIP, returnWhenDomainNotFo
 				return "", nil, false, false, true
 			}
 			var cached bool
-			dstHost, cached, err = dnsResolve(originHost, p.DNSMode)
+			dstHost, cached, err = dnsResolve(originHost, p.DNSMode, p.DNSCacheTTL)
 			if err != nil {
 				logger.Error("Resolve ", originHost, ": ", err)
 				return "", nil, true, false, false
@@ -685,7 +703,7 @@ func genPolicy(logger log.Logger, originHost string, isIP, returnWhenDomainNotFo
 		if strings.HasPrefix(selectedHost, resolvePrefix) {
 			selectedHost = selectedHost[1:]
 			var cached bool
-			dstHost, cached, err = dnsResolve(selectedHost, p.DNSMode)
+			dstHost, cached, err = dnsResolve(selectedHost, p.DNSMode, p.DNSCacheTTL)
 			if err != nil {
 				logger.Error("Resolve ", selectedHost, ": ", err)
 				return "", nil, true, false, false

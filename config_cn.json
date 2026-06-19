@@ -19,8 +19,8 @@
     "wait_timeout": "400ms",
     "udp_size": 4096,
     "singleflight": true,
-    "cache_ttl": 3600,
-    "cache_cap": 4096,
+    "disable_cache": false,
+    "cache_capacity": 4096,
     "edns0_subnet": "",
     "doh_socks5_addr": ""
   },
@@ -110,6 +110,7 @@
     "reply_first": false,
     "sniff_override": "route_only",
     "dns_mode": "prefer_ipv4",
+    "dns_cache_ttl": "1h",
     "connect_timeout": "10s",
     "tls13_only": false,
     "http_status": 0,

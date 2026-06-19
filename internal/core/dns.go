@@ -20,27 +20,26 @@ import (
 	"github.com/miekg/dns"
 )
 
+type DNSClient interface {
+	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
+}
+
 var (
 	dnsAddr         string
 	dnsClient       DNSClient
 	httpClient      *http.Client
 	dnsExchange     func(req *dns.Msg) (resp *dns.Msg, err error)
 	dnsCache        *freelru.ShardedLRU[string, string]
-	dnsCacheTTL     time.Duration
-	dnsSingleflight *singleflight.Group[string, string]
+	dnsResolveGroup *singleflight.Group[string, string]
 	edns0SubnetOpt  *dns.OPT
 )
-
-type DNSClient interface {
-	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
-}
 
 type DNSConfig struct {
 	Type          string `json:"type"`
 	Addr          string `json:"addr"`
 	SingleFlight  bool   `json:"singleflight"`
-	CacheTTL      int    `json:"cache_ttl"`
-	CacheCapacity uint32 `json:"cache_cap"`
+	DisableCache  bool   `json:"disable_cache"`
+	CacheCapacity uint32 `json:"cache_capacity"`
 	EDNS0Subnet   string `json:"edns0_subnet"`
 
 	UDPSize     uint16 `json:"udp_size"`
@@ -60,7 +59,7 @@ func setDNS(c DNSConfig) error {
 		if _, err := netip.ParseAddrPort(dnsAddr); err != nil {
 			return E.WithStr("invalid dns.addr", err)
 		}
-		cli := dns.Client{}
+		var cli dns.Client
 		if c.UDPSize > 0 {
 			cli.UDPSize = c.UDPSize
 		}
@@ -71,7 +70,7 @@ func setDNS(c DNSConfig) error {
 			if err != nil {
 				return E.WithStr("invalid dns.wait_timeout", err)
 			}
-			if timeout < 0 {
+			if timeout <= 0 {
 				return E.New("dns.wait_timeout must be greater than 0")
 			}
 			dnsClient = &antiHijackDNSClient{
@@ -94,7 +93,7 @@ func setDNS(c DNSConfig) error {
 		dnsExchange = dnsClientExchange
 	case "https":
 		if !isValidHTTPSURL(dnsAddr) {
-			return E.NewAny("invalid DoH URL: ", dnsAddr)
+			return E.New("invalid dns.addr")
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		if c.DoHSocks5Addr == "" {
@@ -114,16 +113,15 @@ func setDNS(c DNSConfig) error {
 		}
 		httpClient = &http.Client{Transport: transport}
 		dnsExchange = dohExchange
+	default:
+		return E.NewAny("unknown dns.type: ", c.Type)
 	}
 
 	if c.SingleFlight {
-		dnsSingleflight = new(singleflight.Group[string, string])
+		dnsResolveGroup = new(singleflight.Group[string, string])
 	}
 
-	if c.CacheTTL < 0 {
-		return E.NewAny("invalid dns.cache_ttl: ", c.CacheTTL)
-	}
-	if c.CacheTTL != 0 {
+	if !c.DisableCache {
 		if c.CacheCapacity == 0 {
 			c.CacheCapacity = 4096
 		}
@@ -132,7 +130,6 @@ func setDNS(c DNSConfig) error {
 		if err != nil {
 			return E.WithStr("init DNS cache", err)
 		}
-		dnsCacheTTL = time.Duration(c.CacheTTL) * time.Second
 	}
 
 	if c.EDNS0Subnet != "" {
@@ -269,9 +266,9 @@ func pickFirstAAAARecord(answer []dns.RR) net.IP {
 	return nil
 }
 
-func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
+func doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration) (string, error) {
 	msg := new(dns.Msg)
-	switch dnsMode {
+	switch mode {
 	case DNSModePreferIPv4, DNSModeIPv4Only:
 		msg.SetQuestion(domain+".", dns.TypeA)
 	case DNSModePreferIPv6, DNSModeIPv6Only:
@@ -290,7 +287,7 @@ func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
 	}
 
 	var ip net.IP
-	switch dnsMode {
+	switch mode {
 	case DNSModeIPv4Only:
 		if ip = pickFirstARecord(resp.Answer); ip == nil {
 			return "", E.New("A record not found")
@@ -330,24 +327,24 @@ func doDNSResolve(domain string, dnsMode DNSMode) (string, error) {
 	}
 
 	ipStr := ip.String()
-	if dnsCache != nil {
-		dnsCache.AddWithLifetime(domain, ipStr, dnsCacheTTL)
+	if cacheTTL != 0 && cacheTTL != unsetInt && dnsCache != nil {
+		dnsCache.AddWithLifetime(domain, ipStr, cacheTTL)
 	}
 	return ipStr, nil
 }
 
-func dnsResolve(domain string, dnsMode DNSMode) (ip string, cached bool, err error) {
+func dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (ip string, cached bool, err error) {
 	if dnsCache != nil {
 		if ip, ok := dnsCache.Get(domain); ok {
 			return ip, true, nil
 		}
 	}
 
-	if dnsSingleflight == nil {
-		ip, err = doDNSResolve(domain, dnsMode)
+	if dnsResolveGroup == nil {
+		ip, err = doDNSResolve(domain, mode, cacheTTL)
 	} else {
-		ip, err, _ = dnsSingleflight.Do(domain, func() (string, error) {
-			return doDNSResolve(domain, dnsMode)
+		ip, err, _ = dnsResolveGroup.Do(domain, func() (string, error) {
+			return doDNSResolve(domain, mode, cacheTTL)
 		})
 	}
 
@@ -410,7 +407,7 @@ func (c *antiHijackDNSClient) ExchangeWithConn(m *dns.Msg, conn *dns.Conn) (r *d
 	return c.ExchangeWithConnContext(context.Background(), m, conn)
 }
 
-func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dns.Msg, co *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
+func (c *antiHijackDNSClient) ExchangeWithConnContext(_ context.Context, m *dns.Msg, co *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
 	opt := m.IsEdns0()
 	if opt != nil && opt.UDPSize() >= dns.MinMsgSize {
 		co.UDPSize = opt.UDPSize()
@@ -423,14 +420,14 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dn
 	writeDeadline := t.Add(c.getTimeoutForRequest(c.writeTimeout()))
 	readDeadline := t.Add(c.getTimeoutForRequest(c.readTimeout()))
 
-	if deadline, ok := ctx.Deadline(); ok && !deadline.IsZero() {
+	/*if deadline, ok := ctx.Deadline(); ok && !deadline.IsZero() {
 		if deadline.Before(writeDeadline) {
 			writeDeadline = deadline
 		}
 		if deadline.Before(readDeadline) {
 			readDeadline = deadline
 		}
-	}
+	}*/
 	co.SetWriteDeadline(writeDeadline)
 
 	if waitDeadline := t.Add(c.waitTimeout); readDeadline.Before(waitDeadline) {
