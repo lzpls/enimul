@@ -256,17 +256,15 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	if tmp.NumRecords != nil {
 		if *tmp.NumRecords <= 0 {
 			return fmt.Errorf("num_records %d: must be greater than 0", *tmp.NumRecords)
-		} else {
-			p.NumRecords = *tmp.NumRecords
 		}
+		p.NumRecords = *tmp.NumRecords
 	}
 
 	if tmp.NumSegments != nil {
 		if *tmp.NumSegments == 0 || *tmp.NumSegments < -1 {
 			return fmt.Errorf("num_segs %d: outside the valid range", *tmp.NumSegments)
-		} else {
-			p.NumSegments = *tmp.NumSegments
 		}
+		p.NumSegments = *tmp.NumSegments
 	}
 
 	if tmp.FakeTTL == nil {
@@ -280,17 +278,15 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	if tmp.Attempts != nil {
 		if *tmp.Attempts < 1 {
 			return fmt.Errorf("attempts %d: must be greater than 1", *tmp.Attempts)
-		} else {
-			p.Attempts = *tmp.Attempts
 		}
+		p.Attempts = *tmp.Attempts
 	}
 
 	if tmp.MaxTTL != nil {
 		if *tmp.MaxTTL <= 1 || *tmp.MaxTTL > 255 {
 			return fmt.Errorf("max_ttl %d: outside the valid range", *tmp.MaxTTL)
-		} else {
-			p.MaxTTL = *tmp.MaxTTL
 		}
+		p.MaxTTL = *tmp.MaxTTL
 	}
 
 	var err error

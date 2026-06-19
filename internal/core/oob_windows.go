@@ -18,17 +18,17 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 		return err
 	}
 
-	var toSend []byte
+	var buf []byte
 	if data == nil {
-		toSend = []byte{oob}
+		buf = []byte{oob}
 	} else {
-		toSend = make([]byte, len(data)+1)
-		copy(toSend, data)
-		toSend[len(data)] = oob
+		buf = make([]byte, len(data)+1)
+		copy(buf, data)
+		buf[len(data)] = oob
 	}
 	wsabuf := syscall.WSABuf{
-		Buf: unsafe.SliceData(toSend),
-		Len: uint32(len(toSend)),
+		Buf: unsafe.SliceData(buf),
+		Len: uint32(len(buf)),
 	}
 	var n uint32
 	var sendErr error

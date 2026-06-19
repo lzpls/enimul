@@ -135,7 +135,7 @@ func handleTunnel(
 func handleHTTP(
 	logger log.Logger, req *http.Request,
 	p *Policy, originHost, oldTarget, target string,
-	cliConn, dstConn net.Conn) (newConn net.Conn, ok bool) {
+	cliConn, dstConn net.Conn) (_ net.Conn, _ bool) {
 	var err error
 	defer req.Body.Close()
 
@@ -148,32 +148,7 @@ func handleHTTP(
 	}
 	logger.Info("host=", host, " method=", req.Method, " url=", req.URL)
 
-	if p.HttpStatus == 0 || p.HttpStatus == -1 {
-		if dstConn == nil {
-			dstConn, err = dial.DialTCPTimeout(target, p.ConnectTimeout)
-			if err != nil {
-				logger.Error("Connection to ", oldTarget, " failed: ", err)
-				resp := &http.Response{
-					Status:        status502,
-					StatusCode:    502,
-					Proto:         req.Proto,
-					ProtoMajor:    1,
-					ProtoMinor:    1,
-					Header:        make(http.Header),
-					ContentLength: 0,
-					Close:         true,
-				}
-				if err = resp.Write(cliConn); err != nil {
-					logger.Debug("Failed to send 502: ", err)
-				}
-				return
-			}
-		}
-		if err := req.Write(dstConn); err != nil {
-			logger.Error("Forward HTTP request: ", err)
-			return
-		}
-	} else {
+	if p.HttpStatus != 0 && p.HttpStatus != unsetInt {
 		statusLine := strconv.Itoa(p.HttpStatus) + " " + http.StatusText(p.HttpStatus)
 		resp := &http.Response{
 			Status:        statusLine,
@@ -195,12 +170,36 @@ func handleHTTP(
 		}
 		return
 	}
+	if dstConn == nil {
+		dstConn, err = dial.DialTCPTimeout(target, p.ConnectTimeout)
+		if err != nil {
+			logger.Error("Connection to ", oldTarget, " failed: ", err)
+			resp := &http.Response{
+				Status:        status502,
+				StatusCode:    502,
+				Proto:         req.Proto,
+				ProtoMajor:    1,
+				ProtoMinor:    1,
+				Header:        make(http.Header),
+				ContentLength: 0,
+				Close:         true,
+			}
+			if err = resp.Write(cliConn); err != nil {
+				logger.Debug("Failed to send 502: ", err)
+			}
+			return
+		}
+	}
+	if err := req.Write(dstConn); err != nil {
+		logger.Error("Forward HTTP request: ", err)
+		return
+	}
 	return dstConn, true
 }
 
 func handleTLS(logger log.Logger, recordLen int,
 	p *Policy, originHost, oldTarget, target, originPort string,
-	br *bufio.Reader, cliConn, dstConn net.Conn) (newConn net.Conn, ok bool) {
+	br *bufio.Reader, cliConn, dstConn net.Conn) (_ net.Conn, _ bool) {
 	record := make([]byte, recordLen)
 	if _, err := io.ReadFull(br, record); err != nil {
 		logger.Error("Read first record: ", err)
