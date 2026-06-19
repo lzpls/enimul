@@ -26,9 +26,10 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 		copy(buf, data)
 		buf[len(data)] = oob
 	}
+	length := uint32(len(buf))
 	wsabuf := syscall.WSABuf{
 		Buf: unsafe.SliceData(buf),
-		Len: uint32(len(buf)),
+		Len: length,
 	}
 	var n uint32
 	var sendErr error
@@ -46,5 +47,11 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 	}); err != nil {
 		return E.WithStr("raw write", err)
 	}
-	return E.WithStr("wsasend (MSG_OOB)", sendErr)
+	if sendErr != nil {
+		return E.WithStr("wsasend (MSG_OOB)", sendErr)
+	}
+	if n < length {
+		return E.NewAny("sent only ", n, " of ", length, " bytes")
+	}
+	return nil
 }
