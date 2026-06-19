@@ -539,7 +539,7 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 		ipv6 := raddr[0] == '['
 		ttl, err := getFakeTTL(nil, dohConnPolicy, raddr, ipv6)
 		if err != nil {
-			return 0, E.WithStr("get fake TTL", err)
+			return 0, E.WithStr("get fake ttl", err)
 		}
 		if err = desyncSend(
 			c.Conn, ipv6, b,

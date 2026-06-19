@@ -57,7 +57,7 @@ func sendWithNoise(
 	if err = windows.SetsockoptInt(
 		sockHandle, level, opt, fakeTTL,
 	); err != nil {
-		return E.WithStr("set fake TTL", err)
+		return E.WithStr("set fake ttl", err)
 	}
 
 	if _, err = tmpFile.Seek(0, io.SeekStart); err != nil {
@@ -121,7 +121,7 @@ func sendWithNoise(
 	if err = windows.SetsockoptInt(
 		sockHandle, level, opt, defaultTTL,
 	); err != nil {
-		return E.WithStr("set default TTL", err)
+		return E.WithStr("set default ttl", err)
 	}
 
 	event, err := windows.WaitForSingleObject(ov.HEvent, 5000)
@@ -173,7 +173,7 @@ func desyncSend(
 	level, opt := ttlLevelOption(isIPv6)
 	defaultTTL, err := windows.GetsockoptInt(sockHandle, level, opt)
 	if err != nil {
-		return E.WithStr("get default TTL", err)
+		return E.WithStr("get default ttl", err)
 	}
 
 	cut := findLastDotOrMidPos(record, sniStart, sniLen)

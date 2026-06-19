@@ -78,13 +78,13 @@ func LoadConfig(filePath string) (string, string, error) {
 		}
 		ttlCache, err = freelru.NewSharded[string, int](conf.TTLCacheCapacity, hashStringXXHASH)
 		if err != nil {
-			return "", "", E.WithStr("init TTL cache", err)
+			return "", "", E.WithStr("init ttl cache", err)
 		}
 		ttlCacheTTL = time.Duration(conf.TTLCacheTTL) * time.Second
 	}
 
 	if err = loadTTLRules(conf.FakeTTLRules); err != nil {
-		return "", "", E.WithStr("load fake TTL rules", err)
+		return "", "", E.WithStr("load fake ttl rules", err)
 	}
 
 	defaultPolicy = conf.DefaultPolicy

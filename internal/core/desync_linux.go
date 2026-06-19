@@ -42,7 +42,7 @@ func sendWithNoise(
 	copy(data, fakeData)
 
 	if err := syscall.SetsockoptInt(socketFD, level, opt, fakeTTL); err != nil {
-		return E.WithStr("set fake TTL", err)
+		return E.WithStr("set fake ttl", err)
 	}
 	if _, err := unix.Vmsplice(pipeW, []unix.Iovec{{
 		Base: unsafe.SliceData(data),
@@ -81,12 +81,12 @@ func sendWithNoise(
 	copy(data, realData) // will be sent automatically by the system.
 
 	if err := syscall.SetsockoptInt(socketFD, level, opt, defaultTTL); err != nil {
-		return E.WithStr("set default TTL", err)
+		return E.WithStr("set default ttl", err)
 	}
 
 	<-done
 	if rawWriteErr != nil {
-		return E.WithStr("raw write (splice)", rawWriteErr)
+		return E.WithStr("raw write", rawWriteErr)
 	}
 	return E.WithStr("splice", spliceErr)
 }
@@ -111,7 +111,7 @@ func desyncSend(
 	level, opt := ttlLevelOption(isIPv6)
 	defaultTTL, err := syscall.GetsockoptInt(fd, level, opt)
 	if err != nil {
-		return E.WithStr("get default TTL", err)
+		return E.WithStr("get default ttl", err)
 	}
 
 	cut := findLastDotOrMidPos(record, sniStart, sniLen)

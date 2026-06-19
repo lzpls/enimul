@@ -16,21 +16,20 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 		return err
 	}
 
-	toSend := make([]byte, len(data)+1)
-	copy(toSend, data)
-	toSend[len(data)] = oob
+	buf := make([]byte, len(data)+1)
+	copy(buf, data)
+	buf[len(data)] = oob
 
 	var sendErr error
 	if err = rawConn.Write(func(fd uintptr) (done bool) {
-		for {
-			sendErr = syscall.Sendto(int(fd), toSend, syscall.MSG_OOB, nil)
-			if sendErr == syscall.EINTR {
-				continue
-			}
-			return true
+	tryagain:
+		sendErr = syscall.Sendto(int(fd), buf, syscall.MSG_OOB, nil)
+		if sendErr == syscall.EINTR {
+			goto tryagain
 		}
+		return true
 	}); err != nil {
-		return E.WithStr("raw write (send)", err)
+		return E.WithStr("raw write", err)
 	}
-	return E.WithStr("send (MSG_OOB)", sendErr)
+	return E.WithStr("sendto (MSG_OOB)", sendErr)
 }

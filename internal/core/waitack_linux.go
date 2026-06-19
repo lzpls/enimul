@@ -41,7 +41,7 @@ func waitForAck(enabled bool, conn net.Conn, delay time.Duration) error {
 		}
 	})
 	if rawCtrlErr != nil {
-		return E.WithStr("wait for ACK: raw control", rawCtrlErr)
+		return E.WithStr("wait for ack: raw control", rawCtrlErr)
 	}
-	return E.WithStr("wait for ACK: get TCP info", innerErr)
+	return E.WithStr("wait for ack: get tcp info", innerErr)
 }

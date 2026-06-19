@@ -97,7 +97,7 @@ func loadTTLRules(conf string) error {
 	}
 	rules, err := parseTTLRules(conf)
 	if err != nil {
-		return E.WithStr("parse TTL rules", err)
+		return E.WithStr("parse ttl rules", err)
 	}
 	calcTTL = func(ttl int) (int, error) {
 		for _, r := range rules {
@@ -109,7 +109,7 @@ func loadTTLRules(conf string) error {
 				return r.val, nil
 			}
 		}
-		return 0, E.New("no matching TTL rule")
+		return 0, E.New("no matching ttl rule")
 	}
 	return nil
 }
@@ -142,14 +142,14 @@ func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (ttl int, 
 		var cached bool
 		ttl, cached, err = getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout)
 		if err != nil {
-			return unsetInt, E.WithStr("detect minimum reachable TTL", err)
+			return unsetInt, E.WithStr("probe minimum reachable ttl", err)
 		}
 		if ttl == unsetInt {
-			return unsetInt, E.New("reachable TTL not found")
+			return unsetInt, E.New("reachable ttl not found")
 		}
 		ttl, err = calcTTL(ttl)
 		if err != nil {
-			return unsetInt, E.WithStr("calculate fake TTL", err)
+			return unsetInt, E.WithStr("calculate fake ttl", err)
 		}
 		if logger != nil {
 			if cached {
@@ -203,7 +203,7 @@ func probeMinimumReachableTTL(
 				break
 			}
 			if te, ok := err.(timeoutError); !ok || !te.Timeout() {
-				return unsetInt, E.WithStr("dial with TTL "+F.Int(mid), err)
+				return unsetInt, E.WithStr("dial with ttl "+F.Int(mid), err)
 			}
 		}
 		if ok {

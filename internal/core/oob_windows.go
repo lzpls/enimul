@@ -44,7 +44,7 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 		)
 		return true
 	}); err != nil {
-		return E.WithStr("raw write (wsasend)", err)
+		return E.WithStr("raw write", err)
 	}
 	return E.WithStr("wsasend (MSG_OOB)", sendErr)
 }
