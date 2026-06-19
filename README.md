@@ -11,6 +11,8 @@ go build -trimpath -ldflags="-s -w"
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0.  
+This project is licensed under the GNU Affero General Public License v3.0.
+
 Source code: https://github.com/lzpls/enimul
+
 More: https://www.gnu.org/licenses/agpl-3.0.html
