@@ -17,7 +17,7 @@ func main() {
 		F.Println()
 		showLicense()
 	}
-	confPath := flag.String("c", "", "Config file path")
+	confPath := flag.String("c", "", "Config file path (override environment variable ENIMUL_CONFIG_FILE)")
 	addr := flag.String("b", "", "SOCKS5 bind address (override config)")
 	hAddr := flag.String("hb", "", "HTTP bind address (override config)")
 	maxprocs := flag.Int("mp", 0, "GOMAXPROCS")
