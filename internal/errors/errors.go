@@ -6,7 +6,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 )
 
-var New = errors.New
+func New(text string) error { return errors.New(text) }
 
 func NewAny(args ...any) error {
 	return New(F.Concat(args...))
@@ -29,10 +29,7 @@ func WithStr(op string, err error) error {
 	if err == nil {
 		return nil
 	}
-	return &opError{
-		op:  op,
-		err: err,
-	}
+	return &opError{op: op, err: err}
 }
 
 func WithAny(err error, args ...any) error {
