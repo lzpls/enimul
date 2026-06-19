@@ -163,13 +163,13 @@ func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (int, erro
 	}
 	ttl, cached, err := getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
 	if err != nil {
-		return -1, E.WithStr("get minimum reachable TTL", err)
+		return -1, E.WithStr("get minimum reachable ttl", err)
 	}
 	if ttl == unsetInt {
-		return -1, E.New("reachable TTL not found")
+		return -1, E.New("reachable ttl not found")
 	}
 	if ttl, err = calcTTL(ttl); err != nil {
-		return -1, E.WithStr("calculate fake TTL", err)
+		return -1, E.WithStr("calculate fake ttl", err)
 	}
 	if logger != nil {
 		if cached {
