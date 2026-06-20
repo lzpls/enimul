@@ -71,10 +71,6 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	if tmp.FallbackIP != "" && net.ParseIP(tmp.FallbackIP) == nil {
-		return E.NewAny("invalid fallback IP: ", tmp.FallbackIP)
-	}
-
 	ips, err := parseIPList(tmp.IPs)
 	if err != nil {
 		return err
