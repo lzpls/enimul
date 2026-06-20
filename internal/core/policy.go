@@ -384,7 +384,7 @@ func (p Policy) String() string {
 		fields = append(fields, "timeout="+p.ConnectTimeout.String())
 	}
 	if p.Port != unsetInt && p.Port != 0 {
-		fields = append(fields, ":"+F.Int(p.Port))
+		fields = append(fields, "port="+F.Int(p.Port))
 	}
 	if p.Host == "" || p.Host == unsetString {
 		if p.DNSMode != DNSModeUnset {
@@ -407,10 +407,10 @@ func (p Policy) String() string {
 			fields = append(fields, "minor_ver="+F.Uint(p.MinorVer.Byte()))
 		}
 		if p.NumRecords != unsetInt && p.NumRecords != 1 {
-			fields = append(fields, F.Int(p.NumRecords)+" records")
+			fields = append(fields, "records="+F.Int(p.NumRecords))
 		}
 		if p.NumSegments != unsetInt && p.NumSegments != 1 {
-			fields = append(fields, F.Int(p.NumSegments)+" segments")
+			fields = append(fields, "segs="+F.Int(p.NumSegments))
 		}
 		if p.SendInterval > 0 {
 			fields = append(fields, "send_interval="+p.SendInterval.String())
