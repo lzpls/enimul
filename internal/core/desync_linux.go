@@ -19,7 +19,6 @@ func sendWithNoise(
 	fakeTTL, defaultTTL, level, opt int,
 	fakeSleep time.Duration,
 ) error {
-	// TODO: cache pipes with a sync.Pool
 	var sockFD int
 	if err := rawConn.Control(func(raw uintptr) {
 		sockFD = int(raw)
@@ -27,13 +26,11 @@ func sendWithNoise(
 		return E.WithStr("raw control", err)
 	}
 
-	var pipeFDs [2]int
-	if err := syscall.Pipe2(pipeFDs[:], syscall.O_CLOEXEC|syscall.O_NONBLOCK); err != nil {
-		return E.WithStr("create pipe", err)
+	pipe, err := getPipe()
+	if err != nil {
+		return err
 	}
-	pipeR, pipeW := pipeFDs[0], pipeFDs[1]
-	defer syscall.Close(pipeR)
-	defer syscall.Close(pipeW)
+	defer putPipe(pipe)
 
 	pageSize := syscall.Getpagesize()
 	nPages := (len(fakeData) + pageSize - 1) / pageSize
@@ -50,12 +47,13 @@ func sendWithNoise(
 	if err := syscall.SetsockoptInt(sockFD, level, opt, fakeTTL); err != nil {
 		return E.WithStr("set fake ttl", err)
 	}
-	if _, err := unix.Vmsplice(pipeW, []unix.Iovec{{
+	if _, err := unix.Vmsplice(pipe.wfd, []unix.Iovec{{
 		Base: unsafe.SliceData(data),
 		Len:  platform.Uint(len(fakeData)),
 	}}, unix.SPLICE_F_GIFT); err != nil {
 		return E.WithStr("vmsplice", err)
 	}
+	pipe.hasData = true
 
 	var rawWriteErr, spliceErr error
 	done := make(chan struct{})
@@ -64,7 +62,7 @@ func sendWithNoise(
 		rawWriteErr = rawConn.Write(func(fd uintptr) (done bool) {
 			for remaining > 0 {
 				n, err := syscall.Splice(
-					pipeR, nil,
+					pipe.rfd, nil,
 					int(fd), nil,
 					remaining,
 					unix.SPLICE_F_NONBLOCK,
@@ -77,6 +75,7 @@ func sendWithNoise(
 					return spliceErr != syscall.EAGAIN
 				}
 			}
+			pipe.hasData = false
 			return true
 		})
 		close(done)
