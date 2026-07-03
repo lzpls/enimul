@@ -138,7 +138,7 @@ func setDNS(c DNSConfig) error {
 			return fmt.Errorf("invalid edns0_subnet %s: %w", c.EDNS0Subnet, err)
 		}
 		family := uint16(1)
-		if prefix.Addr().Is6() {
+		if prefix.Addr().Unmap().Is6() {
 			family = 2
 		}
 		edns0 := &dns.EDNS0_SUBNET{
