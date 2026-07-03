@@ -86,9 +86,9 @@ func handleTunnel(
 			logger.Info("Unknown protocol")
 		}
 		if n := br.Buffered(); n > 0 {
-			buf := make([]byte, n)
-			if _, err := br.Read(buf); err != nil {
-				logger.Error("Drain buffered data: ", err)
+			buf, err := br.Peek(n)
+			if err != nil {
+				logger.Error("Read buffered data: ", err)
 				return
 			}
 			if _, err := dstConn.Write(buf); err != nil {
