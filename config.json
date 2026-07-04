@@ -16,6 +16,8 @@
   "dns": {
     "type": "https",
     "addr": "https://987.cloudflare-gateway.com/dns-query",
+    "client_timeout": "5s",
+    "min_rtt": "",
     "wait_timeout": "400ms",
     "udp_size": 4096,
     "singleflight": true,

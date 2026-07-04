@@ -42,8 +42,10 @@ type DNSConfig struct {
 	CacheCapacity uint32 `json:"cache_capacity"`
 	EDNS0Subnet   string `json:"edns0_subnet"`
 
-	UDPSize     uint16 `json:"udp_size"`
-	WaitTimeout string `json:"wait_timeout"`
+	UDPSize       uint16 `json:"udp_size"`
+	ClientTimeout string `json:"client_timeout"`
+	WaitTimeout   string `json:"wait_timeout"`
+	MinRTT        string `json:"min_rtt"`
 
 	DoHSocks5Addr string `json:"doh_socks5_addr"`
 }
@@ -59,23 +61,48 @@ func setDNS(c DNSConfig) error {
 		if _, err := netip.ParseAddrPort(dnsAddr); err != nil {
 			return E.WithStr("invalid dns.addr", err)
 		}
+
 		var cli dns.Client
+		var err error
 		if c.UDPSize > 0 {
 			cli.UDPSize = c.UDPSize
 		}
-		if c.WaitTimeout == "" {
+		if c.ClientTimeout != "" {
+			cli.Timeout, err = time.ParseDuration(c.ClientTimeout)
+			if err != nil {
+				return E.WithStr("invalid dns.client_timeout", err)
+			}
+			if cli.Timeout <= 0 {
+				return E.New("dns.client_timeout must be greater than 0")
+			}
+		}
+
+		if c.WaitTimeout == "" && c.MinRTT == "" {
 			dnsClient = &cli
 		} else {
-			timeout, err := time.ParseDuration(c.WaitTimeout)
-			if err != nil {
-				return E.WithStr("invalid dns.wait_timeout", err)
+			var waitTimeout, minRTT time.Duration
+			if c.WaitTimeout != "" {
+				waitTimeout, err = time.ParseDuration(c.WaitTimeout)
+				if err != nil {
+					return E.WithStr("invalid dns.wait_timeout", err)
+				}
+				if waitTimeout <= 0 {
+					return E.New("dns.wait_timeout must be greater than 0")
+				}
 			}
-			if timeout <= 0 {
-				return E.New("dns.wait_timeout must be greater than 0")
+			if c.MinRTT != "" {
+				minRTT, err = time.ParseDuration(c.MinRTT)
+				if err != nil {
+					return E.WithStr("invalid dns.min_rtt", err)
+				}
+				if minRTT <= 0 {
+					return E.New("dns.min_rtt must be greater than 0")
+				}
 			}
 			dnsClient = &antiHijackDNSClient{
 				Client:      cli,
-				waitTimeout: timeout,
+				waitTimeout: waitTimeout,
+				minRTT:      minRTT,
 			}
 		}
 		dnsExchange = dnsClientExchange
@@ -354,7 +381,7 @@ func dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (ip string,
 // Modified from github.com/miekg/dns.Client
 type antiHijackDNSClient struct {
 	dns.Client
-	waitTimeout time.Duration
+	waitTimeout, minRTT time.Duration
 }
 
 const dnsRWTimeout = 2 * time.Second
@@ -407,7 +434,7 @@ func (c *antiHijackDNSClient) ExchangeWithConn(m *dns.Msg, conn *dns.Conn) (r *d
 	return c.ExchangeWithConnContext(context.Background(), m, conn)
 }
 
-func (c *antiHijackDNSClient) ExchangeWithConnContext(_ context.Context, m *dns.Msg, co *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
+func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dns.Msg, co *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
 	opt := m.IsEdns0()
 	if opt != nil && opt.UDPSize() >= dns.MinMsgSize {
 		co.UDPSize = opt.UDPSize()
@@ -420,18 +447,20 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(_ context.Context, m *dns.
 	writeDeadline := t.Add(c.getTimeoutForRequest(c.writeTimeout()))
 	readDeadline := t.Add(c.getTimeoutForRequest(c.readTimeout()))
 
-	/*if deadline, ok := ctx.Deadline(); ok && !deadline.IsZero() {
+	if deadline, ok := ctx.Deadline(); ok && !deadline.IsZero() {
 		if deadline.Before(writeDeadline) {
 			writeDeadline = deadline
 		}
 		if deadline.Before(readDeadline) {
 			readDeadline = deadline
 		}
-	}*/
+	}
 	co.SetWriteDeadline(writeDeadline)
 
-	if waitDeadline := t.Add(c.waitTimeout); readDeadline.Before(waitDeadline) {
-		readDeadline = waitDeadline
+	if c.waitTimeout != 0 {
+		if waitDeadline := t.Add(c.waitTimeout); waitDeadline.Before(readDeadline) {
+			readDeadline = waitDeadline
+		}
 	}
 	co.SetReadDeadline(readDeadline)
 
@@ -457,8 +486,12 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(_ context.Context, m *dns.
 			break
 		}
 
+		if c.minRTT != 0 && curRTT < c.minRTT {
+			continue
+		}
+
 		if r.Id == m.Id {
-			if edns0SubnetOpt != nil && hasEDNS0Subnet(r) {
+			if c.waitTimeout <= 0 || (edns0SubnetOpt != nil && hasEDNS0Subnet(r)) {
 				return r, curRTT, nil
 			}
 
@@ -470,7 +503,7 @@ func (c *antiHijackDNSClient) ExchangeWithConnContext(_ context.Context, m *dns.
 			}
 		}
 
-		if curRTT >= c.waitTimeout {
+		if c.waitTimeout > 0 && curRTT >= c.waitTimeout {
 			break
 		}
 	}
