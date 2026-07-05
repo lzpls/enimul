@@ -20,7 +20,7 @@ func setLogOutput(out string) error {
 	case "", "stdout": // default
 		logOutput = os.Stdout
 	default:
-		f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0640)
+		f, err := os.OpenFile(out, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 		if err != nil {
 			return E.WithStr("open log file", err)
 		}
