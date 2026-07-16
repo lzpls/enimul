@@ -20,13 +20,6 @@ type Config struct {
 	OutboundBinding  dial.BindingOption `json:"outbound_binding"`
 	DNSConfig        DNSConfig          `json:"dns"`
 	TTLProbingConfig TTLProbingConfig   `json:"ttl_probing"`
-	FakeTTLRules     string             `json:"fake_ttl_rules"`
-	DNSSingleflight  bool               `json:"dns_singleflight"`
-	DNSCacheTTL      int                `json:"dns_cache_ttl"`
-	DNSCacheCapacity uint32             `json:"dns_cache_cap"`
-	TTLSingleflight  bool               `json:"ttl_singleflight"`
-	TTLCacheTTL      int                `json:"ttl_cache_ttl"`
-	TTLCacheCapacity uint32             `json:"ttl_cache_cap"`
 	IPPools          map[string]*IPPool `json:"ip_pools"`
 	Hosts            map[string]string  `json:"hosts"`
 	DefaultPolicy    Policy             `json:"default_policy"`
