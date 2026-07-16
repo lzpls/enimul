@@ -22,6 +22,7 @@ func main() {
 	hAddr := flag.String("hb", "", "HTTP bind address (override config)")
 	maxprocs := flag.Int("mp", 0, "GOMAXPROCS")
 	printLicense := flag.Bool("license", false, "Show license and source code information and exit")
+	disallowUnknownFields := flag.Bool("duf", false, "Reject config containing unknown fields")
 	flag.Parse()
 
 	if *printLicense {
@@ -36,7 +37,7 @@ func main() {
 			configPath = "config.json"
 		}
 	}
-	socks5Addr, httpAddr, err := core.LoadConfig(configPath)
+	socks5Addr, httpAddr, err := core.LoadConfig(configPath, *disallowUnknownFields)
 	if err != nil {
 		F.Println("Failed to load config:", err)
 		return

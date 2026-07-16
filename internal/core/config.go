@@ -27,17 +27,21 @@ type Config struct {
 	IpPolicies       map[string]Policy  `json:"ip_policies"`
 }
 
-func LoadConfig(filePath string) (string, string, error) {
+func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", "", err
 	}
+	decoder := json.NewDecoder(file)
+	if disallowUnknownFields {
+		decoder.DisallowUnknownFields()
+	}
 	var conf Config
-	if err = json.NewDecoder(file).Decode(&conf); err != nil {
-		file.Close()
+	err = decoder.Decode(&conf)
+	file.Close()
+	if err != nil {
 		return "", "", err
 	}
-	file.Close()
 
 	if err := setLogOutput(conf.LogOutput); err != nil {
 		return "", "", err
