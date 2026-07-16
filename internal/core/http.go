@@ -7,7 +7,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
-	"sync"
+	"sync/atomic"
 
 	"github.com/lzpls/enimul/internal/dial"
 	F "github.com/lzpls/enimul/internal/fmt"
@@ -20,19 +20,19 @@ const (
 	status502 = "502 Bad Gateway"
 )
 
-var (
-	httpConnID      uint32
-	httpConnIDMutex sync.Mutex
-)
+var httpConnID atomic.Uint32
 
 func getHTTPConnID() uint32 {
-	httpConnIDMutex.Lock()
-	defer httpConnIDMutex.Unlock()
-	httpConnID++
-	if httpConnID > maxConnID {
-		httpConnID = 1
+again:
+	old := httpConnID.Load()
+	new := old + 1
+	if new > maxConnID {
+		new = 1
 	}
-	return httpConnID
+	if httpConnID.CompareAndSwap(old, new) {
+		return new
+	}
+	goto again
 }
 
 func HTTPAccept(addr *string, serverAddr string) {
