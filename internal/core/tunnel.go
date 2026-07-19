@@ -61,9 +61,9 @@ func handleTunnel(
 			if peekBytes[1] == tlsMajorVersion {
 				payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
 				var ok bool
-				if dstConn, ok = handleTLS(logger, payloadLen,
+				if dstConn, _, ok = handleTLS(logger, payloadLen,
 					p, originHost, oldTarget, target, originPort,
-					br, cliConn, dstConn); !ok {
+					br, cliConn, dstConn, false); !ok {
 					return
 				}
 			}
@@ -85,22 +85,37 @@ func handleTunnel(
 		} else {
 			logger.Info("Unknown protocol")
 		}
-		if n := br.Buffered(); n > 0 {
-			buf, err := br.Peek(n)
-			if err != nil {
-				logger.Error("Read buffered data: ", err)
-				return
-			}
-			if _, err := dstConn.Write(buf); err != nil {
-				logger.Error("Send drained buffered data: ", err)
-				return
-			}
+		if !drainBuffered(logger, br, dstConn) {
+			return
 		}
 	}
 
-	logger.Info("Start forwarding")
-	srcTCPConn, dstTCPConn := cliConn.(*net.TCPConn), dstConn.(*net.TCPConn)
 	closeHere = false
+	forward(logger, cliConn, dstConn, originHost)
+}
+
+func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
+	if n := br.Buffered(); n > 0 {
+		buf, err := br.Peek(n)
+		if err != nil {
+			logger.Error("Read buffered data: ", err)
+			return false
+		}
+		if _, err := dst.Write(buf); err != nil {
+			logger.Error("Send drained buffered data: ", err)
+			return false
+		}
+	}
+	return true
+}
+
+func forward(logger log.Logger, srcConn, dstConn net.Conn, dstAddr string) {
+	logger.Info("Start forwarding")
+	srcTCPConn, dstTCPConn := srcConn.(*net.TCPConn), dstConn.(*net.TCPConn)
+	closeBoth := func() {
+		dstTCPConn.Close()
+		srcTCPConn.Close()
+	}
 	var done atomic.Bool
 	go func() {
 		if _, err := io.Copy(dstTCPConn, srcTCPConn); err != nil {
@@ -108,10 +123,10 @@ func handleTunnel(
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			logger.Error("Forward ", cliConn.RemoteAddr(), "->", originHost, ": ", err)
+			logger.Error("Forward ", dstTCPConn.RemoteAddr(), "->", dstAddr, ": ", err)
 			return
 		}
-		logger.Debug("Forward ", cliConn.RemoteAddr(), "->", originHost, " finished")
+		logger.Debug("Forward ", dstTCPConn.RemoteAddr(), "->", dstAddr, " finished")
 		if err := dstTCPConn.CloseWrite(); err != nil || done.Swap(true) {
 			closeBoth()
 		}
@@ -122,10 +137,10 @@ func handleTunnel(
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			logger.Error("Forward ", originHost, "->", cliConn.RemoteAddr(), ": ", err)
+			logger.Error("Forward ", dstAddr, "->", srcTCPConn.RemoteAddr(), ": ", err)
 			return
 		}
-		logger.Debug("Forward ", originHost, "->", cliConn.RemoteAddr(), " finished")
+		logger.Debug("Forward ", dstAddr, "->", srcTCPConn.RemoteAddr(), " finished")
 		if err := srcTCPConn.CloseWrite(); err != nil || done.Swap(true) {
 			closeBoth()
 		}
@@ -199,7 +214,8 @@ func handleHTTP(
 
 func handleTLS(logger log.Logger, recordLen int,
 	p *Policy, originHost, oldTarget, target, originPort string,
-	br *bufio.Reader, cliConn, dstConn net.Conn) (_ net.Conn, _ bool) {
+	br *bufio.Reader, cliConn, dstConn net.Conn,
+	fromSNIProxy bool) (_ net.Conn, _ string, _ bool) {
 	record := make([]byte, recordLen)
 	if _, err := io.ReadFull(br, record); err != nil {
 		logger.Error("Read first record: ", err)
@@ -222,13 +238,27 @@ func handleTLS(logger log.Logger, recordLen int,
 
 	var mode Mode
 	if sniStart <= 0 {
+		if fromSNIProxy {
+			logger.Error("SNI not found")
+			return
+		}
 		logger.Info("SNI not found")
 		mode = ModeDirect
 	} else if hasECH {
-		logger.Info("ECH detected ", "(SNI=", record[sniStart:sniStart+sniLen], "), ignored")
+		msg := []any{"ECH detected ", "(SNI=", record[sniStart : sniStart+sniLen], "), ignored"}
+		if fromSNIProxy {
+			logger.Error(msg...)
+			return
+		}
+		logger.Info(msg...)
 		mode = ModeDirect
-	} else if sniStr := string(record[sniStart : sniStart+sniLen]); originHost != sniStr {
-		logger.Info("Mismatched SNI: ", sniStr)
+	} else if sniStr := string(record[sniStart : sniStart+sniLen]); fromSNIProxy || originHost != sniStr {
+		if fromSNIProxy {
+			logger.Info("SNI: ", sniStr)
+			originHost = sniStr
+		} else {
+			logger.Info("Mismatched SNI: ", sniStr)
+		}
 		switch p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
 			if sniPolicy, exists := domainMatcher.Find(sniStr); exists {
@@ -242,14 +272,18 @@ func handleTLS(logger log.Logger, recordLen int,
 					return
 				}
 				p = mergePolicies(sniPolicy, p)
-				logger.Info("New policy: ", p)
+				logger.Info("SNI policy: ", p)
 			}
 		case SniffOverrideAlways, SniffOverridePolicyExists:
 			newDst, sniPolicy, failed, blocked, policyNotExists := genPolicy(
-				logger, sniStr, false, p.SniffOverrideMode == SniffOverridePolicyExists)
+				logger, sniStr, false, !fromSNIProxy && p.SniffOverrideMode == SniffOverridePolicyExists)
 			switch {
 			case failed:
-				logger.Error("Failed to generate SNI policy; falling back to origin")
+				if fromSNIProxy {
+					logger.Error("Failed to geenrate SNI Policy")
+					return
+				}
+				logger.Warn("Failed to generate SNI policy; falling back to origin")
 			case policyNotExists:
 				logger.Info("SNI policy not found; falling back to origin")
 			default:
@@ -262,7 +296,7 @@ func handleTLS(logger log.Logger, recordLen int,
 					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
-				logger.Info("New policy: ", sniPolicy)
+				logger.Info("SNI policy: ", sniPolicy)
 				if sniPolicy.Port != 0 && sniPolicy.Port != unsetInt {
 					originPort = F.Int(sniPolicy.Port)
 				}
@@ -273,7 +307,12 @@ func handleTLS(logger log.Logger, recordLen int,
 						dstConn.Close()
 					}
 					dstConn, p, target = newConn, sniPolicy, newTarget
-					logger.Info("Target has been changed to ", sniStr)
+					if !fromSNIProxy {
+						logger.Info("Target has been changed to ", sniStr)
+					}
+				} else if fromSNIProxy {
+					logger.Error("Connection to ", newTarget, " failed:", err)
+					return
 				} else {
 					logger.Error("Connection to ", newTarget, " failed:", err, "; falling back to origin")
 				}
@@ -325,7 +364,7 @@ func handleTLS(logger log.Logger, recordLen int,
 		}
 		logger.Info("Sent ClientHello with fake packet")
 	}
-	return dstConn, true
+	return dstConn, originHost, true
 }
 
 const (

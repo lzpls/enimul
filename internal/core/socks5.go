@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
 	"slices"
@@ -23,16 +22,13 @@ var (
 
 const maxConnID = 0xFFFFF
 
-func SOCKS5Accept(addr *string, serverAddr string, done chan struct{}) {
-	defer func() { done <- struct{}{} }()
-	var listenAddr string
-	if *addr == "" {
-		listenAddr = serverAddr
-	} else {
-		listenAddr = *addr
+func SOCKS5Accept(cmdAddr, configAddr string) {
+	listenAddr := cmdAddr
+	if listenAddr == "" {
+		listenAddr = configAddr
 	}
 	if listenAddr == "" {
-		fmt.Println("SOCKS5 bind address is not specified")
+		F.Println("SOCKS5 bind address is not specified")
 		return
 	}
 	if listenAddr == "none" {
@@ -82,7 +78,7 @@ func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
 }
 
 func socks5Handler(cliConn net.Conn, id uint32) {
-	logger := newLogger(F.ConnIDToHex5('S', id))
+	logger := newLogger(F.ConnIDToHex5("S", id))
 	logger.Info("Connection from ", cliConn.RemoteAddr())
 
 	var (

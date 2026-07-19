@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -35,15 +34,13 @@ again:
 	goto again
 }
 
-func HTTPAccept(addr *string, serverAddr string) {
-	var listenAddr string
-	if *addr == "" {
-		listenAddr = serverAddr
-	} else {
-		listenAddr = *addr
+func HTTPAccept(cmdAddr, configAddr string) {
+	listenAddr := cmdAddr
+	if listenAddr == "" {
+		listenAddr = configAddr
 	}
 	if listenAddr == "" {
-		fmt.Println("HTTP bind address is not specified")
+		F.Println("HTTP bind address is not specified")
 		return
 	}
 	if listenAddr == "none" {
@@ -63,7 +60,7 @@ func HTTPAccept(addr *string, serverAddr string) {
 }
 
 func httpHandler(w http.ResponseWriter, req *http.Request) {
-	logger := newLogger(F.ConnIDToHex5('H', getHTTPConnID()))
+	logger := newLogger(F.ConnIDToHex5("H", getHTTPConnID()))
 	logger.Info(req.RemoteAddr, " - \"", req.Method, " ", req.RequestURI, " ", req.Proto, "\"")
 
 	if req.Method == http.MethodConnect {

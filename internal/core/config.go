@@ -17,6 +17,7 @@ type Config struct {
 	LogOutput        string             `json:"log_output"`
 	Socks5Addr       string             `json:"socks5_address"`
 	HttpAddr         string             `json:"http_address"`
+	SNIProxyAddr     string             `json:"sniproxy_address"`
 	OutboundBinding  dial.BindingOption `json:"outbound_binding"`
 	DNSConfig        DNSConfig          `json:"dns"`
 	TTLProbingConfig TTLProbingConfig   `json:"ttl_probing"`
@@ -27,10 +28,10 @@ type Config struct {
 	IpPolicies       map[string]Policy  `json:"ip_policies"`
 }
 
-func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, error) {
+func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	decoder := json.NewDecoder(file)
 	if disallowUnknownFields {
@@ -40,16 +41,16 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, er
 	err = decoder.Decode(&conf)
 	file.Close()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	if err := setLogOutput(conf.LogOutput); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	logLevel = conf.LogLevel
 
 	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	dial.SetLogger(newLogger("[dial]"))
 
@@ -95,14 +96,14 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, er
 	}
 
 	if err = setDNS(conf.DNSConfig); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
 	if err = setTTLProbing(conf.TTLProbingConfig); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 
-	return conf.Socks5Addr, conf.HttpAddr, nil
+	return conf.Socks5Addr, conf.HttpAddr, conf.SNIProxyAddr, nil
 }
 
 // for freelru

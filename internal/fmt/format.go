@@ -16,13 +16,18 @@ func Byte(b byte) string {
 	return string(hexBuf[:])
 }
 
-func ConnIDToHex5(name byte, id uint32) string {
-	var hexBuf [8]byte
-	hexBuf[0], hexBuf[1], hexBuf[7] = name, '[', ']'
-	for i := range 5 {
-		hexBuf[i+2] = hexDigits[(id>>uint(4*(4-i)))&0xf]
+func ConnIDToHex5(name string, id uint32) string {
+	var num [5]byte
+	for i := 4; i >= 0; i-- {
+		num[i] = byte(id%10) + '0'
+		id /= 10
 	}
-	return string(hexBuf[:])
+	b := make([]byte, 0)
+	b = append(b, name...)
+	b = append(b, '[')
+	b = append(b, num[:]...)
+	b = append(b, ']')
+	return string(b)
 }
 
 func Append(b []byte, args ...any) []byte {
