@@ -52,9 +52,9 @@ func main() {
 	startPprofServer()
 
 	var wg sync.WaitGroup
-	wg.Go(func() { core.SOCKS5Accept(*socks5Addr, configSocks5Addr) })
-	wg.Go(func() { core.HTTPAccept(*httpAddr, configHTTPAddr) })
-	wg.Go(func() { core.SNIAccept(*sniAddr, configSNIAddr) })
+	wg.Go(func() { core.SOCKS5Serve(*socks5Addr, configSocks5Addr) })
+	wg.Go(func() { core.HTTPServe(*httpAddr, configHTTPAddr) })
+	wg.Go(func() { core.SNIServe(*sniAddr, configSNIAddr) })
 	wg.Wait()
 }
 

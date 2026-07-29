@@ -34,7 +34,7 @@ again:
 	goto again
 }
 
-func HTTPAccept(cmdAddr, configAddr string) {
+func HTTPServe(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr

@@ -22,7 +22,7 @@ var (
 
 const maxConnID = 0xFFFFF
 
-func SOCKS5Accept(cmdAddr, configAddr string) {
+func SOCKS5Serve(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -41,6 +41,7 @@ func SOCKS5Accept(cmdAddr, configAddr string) {
 		logger.Error("Failed to start SOCKS5 server: ", err)
 		return
 	}
+	defer ln.Close()
 	logger.Info("SOCKS5 proxy server started at ", ln.Addr())
 
 	var connID uint32
@@ -58,7 +59,6 @@ func SOCKS5Accept(cmdAddr, configAddr string) {
 			logger.Warn("Accept failed: ", err)
 		} else {
 			logger.Error("Accept failed (fatal): ", err)
-			ln.Close()
 			return
 		}
 	}

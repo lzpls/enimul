@@ -10,7 +10,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 )
 
-func SNIAccept(cmdAddr, configAddr string) {
+func SNIServe(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
