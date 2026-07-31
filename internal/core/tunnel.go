@@ -280,7 +280,7 @@ func handleTLS(logger log.Logger, recordLen int,
 			switch {
 			case failed:
 				if fromSNIProxy {
-					logger.Error("Failed to geenrate SNI Policy")
+					logger.Error("Failed to generate SNI Policy")
 					return
 				}
 				logger.Warn("Failed to generate SNI policy; falling back to origin")
