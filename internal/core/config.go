@@ -8,24 +8,25 @@ import (
 	"github.com/lzpls/enimul/internal/addrtrie"
 	"github.com/lzpls/enimul/internal/dial"
 	"github.com/lzpls/enimul/internal/log"
+	"github.com/lzpls/enimul/internal/orderedmap"
 
 	"github.com/cespare/xxhash/v2"
 )
 
 type Config struct {
-	LogLevel         log.Level          `json:"log_level"`
-	LogOutput        string             `json:"log_output"`
-	Socks5Addr       string             `json:"socks5_address"`
-	HttpAddr         string             `json:"http_address"`
-	SNIProxyAddr     string             `json:"sniproxy_address"`
-	OutboundBinding  dial.BindingOption `json:"outbound_binding"`
-	DNSConfig        DNSConfig          `json:"dns"`
-	TTLProbingConfig TTLProbingConfig   `json:"ttl_probing"`
-	IPPools          map[string]*IPPool `json:"ip_pools"`
-	Hosts            map[string]string  `json:"hosts"`
-	DefaultPolicy    Policy             `json:"default_policy"`
-	DomainPolicies   map[string]Policy  `json:"domain_policies"`
-	IpPolicies       map[string]Policy  `json:"ip_policies"`
+	LogLevel         log.Level               `json:"log_level"`
+	LogOutput        string                  `json:"log_output"`
+	Socks5Addr       string                  `json:"socks5_address"`
+	HttpAddr         string                  `json:"http_address"`
+	SNIProxyAddr     string                  `json:"sniproxy_address"`
+	OutboundBinding  dial.BindingOption      `json:"outbound_binding"`
+	DNSConfig        DNSConfig               `json:"dns"`
+	TTLProbingConfig TTLProbingConfig        `json:"ttl_probing"`
+	IPPools          orderedmap.Map[*IPPool] `json:"ip_pools"`
+	Hosts            orderedmap.Map[string]  `json:"hosts"`
+	DefaultPolicy    Policy                  `json:"default_policy"`
+	DomainPolicies   orderedmap.Map[Policy]  `json:"domain_policies"`
+	IpPolicies       orderedmap.Map[Policy]  `json:"ip_policies"`
 }
 
 func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
@@ -54,9 +55,9 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, st
 	}
 	dial.SetLogger(newLogger("[dial]"))
 
-	if len(conf.IPPools) > 0 {
-		ipPools = conf.IPPools
-		for tag, pool := range ipPools {
+	if conf.IPPools.Len() > 0 {
+		ipPools = &conf.IPPools
+		for tag, pool := range ipPools.All() {
 			pool.Init(newLogger("P[" + tag + "]"))
 		}
 	}
@@ -64,7 +65,7 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, st
 	defaultPolicy = conf.DefaultPolicy
 
 	hostsMatcher = addrtrie.NewDomainMatcher[string]()
-	for patterns, host := range conf.Hosts {
+	for patterns, host := range conf.Hosts.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, pattern := range expandPattern(elem) {
 				hostsMatcher.Add(pattern, host)
@@ -73,7 +74,7 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, st
 	}
 
 	domainMatcher = addrtrie.NewDomainMatcher[*Policy]()
-	for patterns, policy := range conf.DomainPolicies {
+	for patterns, policy := range conf.DomainPolicies.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, pattern := range expandPattern(elem) {
 				domainMatcher.Add(pattern, &policy)
@@ -83,7 +84,7 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, st
 
 	ipMatcher = addrtrie.NewIPv4Trie[*Policy]()
 	ipv6Matcher = addrtrie.NewIPv6Trie[*Policy]()
-	for patterns, policy := range conf.IpPolicies {
+	for patterns, policy := range conf.IpPolicies.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, ipOrNet := range expandPattern(elem) {
 				if isIPv6(ipOrNet) {
