@@ -53,7 +53,7 @@ type IPPool struct {
 
 	scanMu  sync.Mutex
 	sem     chan struct{}
-	counter uint32
+	counter atomic.Uint32
 }
 
 func (p *IPPool) UnmarshalJSON(b []byte) error {
@@ -215,8 +215,8 @@ func (p *IPPool) scan() {
 	for i := range p.ips {
 		wg.Go(func() {
 			p.sem <- struct{}{}
+			defer func() { <-p.sem }()
 			latency, loss := p.testIP(i)
-			<-p.sem
 			results <- ipResult{i, latency, loss}
 		})
 	}
@@ -330,7 +330,7 @@ func (p *IPPool) Get() string {
 	total := p.totalWeight
 	p.mu.RUnlock()
 
-	current := atomic.AddUint32(&p.counter, 1) - 1
+	current := p.counter.Add(1) - 1
 	target := int(current) % total
 	acc := 0
 	for i := range validCount {
