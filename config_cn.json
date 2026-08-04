@@ -123,9 +123,9 @@
     "dns_mode": "prefer_ipv4",
     "dns_cache_ttl": "1h",
     "connect_timeout": "10s",
-    "tls13_only": false,
     "http_status": 0,
     "mode": "tls-rf",
+    "pre_tls13_mode": "none",
     "minor_ver": 4,
     "num_records": 4,
     "num_segs": 1,
@@ -169,7 +169,7 @@
   "domain_policies": {
     "*(google.com|google.com.hk|gmail.com|google.dev|googleapis.com|gstatic.com|googleusercontent.com|.google|goo.gl|translate.goog|android.com|ai.dev|blogger.com|blogspot.com|blogblog.com|chrome.com|chromium.org|golang.org|youtube.com|youtu.be|youtube-nocookie.com|.ytimg.com|.ggpht.com|gvt1.com|withgoogle.com|googlesource.com)": {
       "host": "^$gws",
-      "tls13_only": true,
+      "pre_tls13_mode": "tls-alert",
       "http_status": 302
     },
     "*.googlevideo.com": {

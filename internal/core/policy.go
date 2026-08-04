@@ -88,6 +88,7 @@ func (m *Mode) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch s {
+	case "none":
 	case ModeNameRaw:
 		*m = ModeRaw
 	case ModeNameDirect:
@@ -182,8 +183,8 @@ type Policy struct {
 	MapTo             string
 	Port              int
 	HttpStatus        int
-	TLS13Only         TriBool
 	Mode              Mode
+	PreTLS13Mode      Mode
 
 	NumRecords   int
 	NumSegments  int
@@ -212,8 +213,8 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		DNSMode           DNSMode           `json:"dns_mode"`
 		DNSCacheTTL       *string           `json:"dns_cache_ttl"`
 		HttpStatus        *uint             `json:"http_status"`
-		TLS13Only         TriBool           `json:"tls13_only"`
 		Mode              Mode              `json:"mode"`
+		PreTLS13Mode      Mode              `json:"pre_tls13_mode"`
 		NumRecords        *uint             `json:"num_records"`
 		NumSegments       *int              `json:"num_segs"`
 		WaitForAck        TriBool           `json:"wait_for_ack"`
@@ -234,8 +235,8 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 
 	p.SniffOverrideMode = tmp.SniffOverrideMode
 	p.ReplyFirst = tmp.ReplyFirst
-	p.TLS13Only = tmp.TLS13Only
 	p.Mode = tmp.Mode
+	p.PreTLS13Mode = tmp.PreTLS13Mode
 	p.DNSMode = tmp.DNSMode
 	p.OOB = tmp.OOB
 	p.OOBEx = tmp.OOBEx
@@ -388,7 +389,7 @@ func (p Policy) String() string {
 	}
 	if p.Host == "" || p.Host == unsetString {
 		if p.DNSMode != DNSModeUnset {
-			fields = append(fields, p.DNSMode.String())
+			fields = append(fields, "dns_mode="+p.DNSMode.String())
 		}
 		if p.DNSCacheTTL > 0 {
 			fields = append(fields, "dns_cache_ttl="+p.DNSCacheTTL.String())
@@ -397,12 +398,11 @@ func (p Policy) String() string {
 	if p.HttpStatus > 0 {
 		fields = append(fields, "http_status="+F.Int(p.HttpStatus))
 	}
-	if p.TLS13Only.IsTrue() {
-		fields = append(fields, "tls13_only")
+	fields = append(fields, "mode="+p.Mode.String())
+	if p.PreTLS13Mode != ModeUnset {
+		fields = append(fields, "pre_tls13_mode="+p.PreTLS13Mode.String())
 	}
-	fields = append(fields, p.Mode.String())
-	switch p.Mode {
-	case ModeTLSRF:
+	if p.Mode == ModeTLSRF || p.PreTLS13Mode == ModeTLSRF {
 		if !p.MinorVer.IsUnset() {
 			fields = append(fields, "minor_ver="+F.Uint(p.MinorVer.Byte()))
 		}
@@ -421,8 +421,8 @@ func (p Policy) String() string {
 		if p.OOBEx.IsTrue() {
 			fields = append(fields, "oob_ex")
 		}
-
-	case ModeTTLD:
+	}
+	if p.Mode == ModeTTLD || p.PreTLS13Mode == ModeTTLD {
 		if p.FakeTTL == 0 || p.FakeTTL == unsetInt {
 			fields = append(fields, "auto_fake_ttl")
 			if p.Attempts != 0 {
@@ -480,11 +480,11 @@ func mergePolicies(policies ...*Policy) *Policy {
 		if merged.HttpStatus == unsetInt && p.HttpStatus != unsetInt {
 			merged.HttpStatus = p.HttpStatus
 		}
-		if merged.TLS13Only.IsUnset() && !p.TLS13Only.IsUnset() {
-			merged.TLS13Only = p.TLS13Only
-		}
 		if merged.Mode == ModeUnset && p.Mode != ModeUnset {
 			merged.Mode = p.Mode
+		}
+		if merged.PreTLS13Mode == ModeUnset && p.PreTLS13Mode != ModeUnset {
+			merged.PreTLS13Mode = p.PreTLS13Mode
 		}
 		if merged.DNSMode == DNSModeUnset && p.DNSMode != DNSModeUnset {
 			merged.DNSMode = p.DNSMode
@@ -576,8 +576,11 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	if dohConnPolicy.TLS13Only.IsTrue() && !hasKeyShare {
-		return 0, E.New("not a TLS 1.3 ClientHello")
+	if !hasKeyShare {
+		switch dohConnPolicy.PreTLS13Mode {
+		case ModeBlock, ModeTLSAlert:
+			return 0, E.New("not a TLS 1.3 ClientHello")
+		}
 	}
 	if sniStart == -1 {
 		return c.Conn.Write(b)
@@ -664,7 +667,7 @@ func genDoHDialFunc() (func(ctx context.Context, network, address string) (net.C
 	}
 	switch dohConnPolicy.Mode {
 	case ModeBlock, ModeTLSAlert:
-		return nil, E.New("the mode of the DoH cannot be `block`")
+		return nil, E.New("DoH policy mode cannot be `block`")
 	}
 	port := parsedURL.Port()
 	if port == "" {
