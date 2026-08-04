@@ -123,10 +123,10 @@ func forward(logger log.Logger, srcConn, dstConn net.Conn, dstAddr string) {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			logger.Error("Forward ", dstTCPConn.RemoteAddr(), "->", dstAddr, ": ", err)
+			logger.Error("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, ": ", err)
 			return
 		}
-		logger.Debug("Forward ", dstTCPConn.RemoteAddr(), "->", dstAddr, " finished")
+		logger.Debug("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, " finished")
 		if err := dstTCPConn.CloseWrite(); err != nil || done.Swap(true) {
 			closeBoth()
 		}
