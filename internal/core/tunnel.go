@@ -230,19 +230,18 @@ func handleTLS(logger log.Logger, recordLen int,
 		sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 		return
 	}
-	if p.TLS13Only.IsTrue() && !hasKeyShare {
-		logger.Info("Connection blocked: key_share missing from ClientHello")
-		sendTLSAlert(logger, cliConn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
+	if checkTLS13Only(logger, hasKeyShare, p, cliConn, prtVer) {
 		return
 	}
 
 	var mode Mode
 	if sniStart <= 0 {
+		const msg = "SNI not found"
 		if fromSNIProxy {
-			logger.Error("SNI not found")
+			logger.Error(msg)
 			return
 		}
-		logger.Info("SNI not found")
+		logger.Info(msg)
 		mode = ModeDirect
 	} else if hasECH {
 		msg := []any{"ECH detected ", "(SNI=", record[sniStart : sniStart+sniLen], "), ignored"}
@@ -262,13 +261,16 @@ func handleTLS(logger log.Logger, recordLen int,
 		switch p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
 			if sniPolicy, exists := domainMatcher.Find(sniStr); exists {
-				if sniPolicy.Mode == ModeBlock {
+				switch sniPolicy.Mode {
+				case ModeBlock:
 					logger.Info("Connection blocked: ", sniStr)
 					return
-				}
-				if sniPolicy.Mode == ModeTLSAlert {
+				case ModeTLSAlert:
 					logger.Info("Connection blocked (TLS alert): ", sniStr)
 					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
+					return
+				}
+				if checkTLS13Only(logger, hasKeyShare, sniPolicy, cliConn, prtVer) {
 					return
 				}
 				p = mergePolicies(sniPolicy, p)
@@ -294,6 +296,9 @@ func handleTLS(logger log.Logger, recordLen int,
 				if sniPolicy.Mode == ModeTLSAlert {
 					logger.Info("Connection blocked (TLS alert): ", sniStr)
 					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
+					return
+				}
+				if checkTLS13Only(logger, hasKeyShare, sniPolicy, cliConn, prtVer) {
 					return
 				}
 				logger.Info("SNI policy: ", sniPolicy)
@@ -365,6 +370,15 @@ func handleTLS(logger log.Logger, recordLen int,
 		logger.Info("Sent ClientHello with fake packet")
 	}
 	return dstConn, originHost, true
+}
+
+func checkTLS13Only(logger log.Logger, isTLS13 bool, p *Policy, conn net.Conn, prtVer []byte) bool {
+	if !isTLS13 && p.TLS13Only.IsTrue() {
+		logger.Info("Connection blocked: key_share missing from ClientHello")
+		sendTLSAlert(logger, conn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
+		return true
+	}
+	return false
 }
 
 const (
