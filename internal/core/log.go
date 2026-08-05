@@ -21,6 +21,7 @@ func setLogOutput(out string) error {
 	case "", "stdout": // default
 		logOutput = os.Stdout
 	default:
+		out = os.ExpandEnv(out)
 		if dir := filepath.Dir(out); dir != "." && dir != "" {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				return E.WithStr("create log directory: ", err)
