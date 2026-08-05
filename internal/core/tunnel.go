@@ -221,7 +221,7 @@ func handleTLS(logger log.Logger, recordLen int,
 		logger.Error("Read first record: ", err)
 		return
 	}
-	prtVer, sniStart, sniLen, hasKeyShare, hasECH, err := parseClientHello(record)
+	prtVer, sniStart, sniLen, isTLS13, hasECH, err := parseClientHello(record)
 	if err != nil {
 		logger.Error("Parse record: ", err)
 		return
@@ -230,7 +230,7 @@ func handleTLS(logger log.Logger, recordLen int,
 		sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 		return
 	}
-	if checkTLS13Only(logger, hasKeyShare, p, cliConn, prtVer) {
+	if checkTLS13Only(logger, isTLS13, p, cliConn, prtVer) {
 		return
 	}
 
@@ -270,7 +270,7 @@ func handleTLS(logger log.Logger, recordLen int,
 					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
-				if checkTLS13Only(logger, hasKeyShare, sniPolicy, cliConn, prtVer) {
+				if checkTLS13Only(logger, isTLS13, sniPolicy, cliConn, prtVer) {
 					return
 				}
 				p = mergePolicies(sniPolicy, p)
@@ -298,7 +298,7 @@ func handleTLS(logger log.Logger, recordLen int,
 					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
-				if checkTLS13Only(logger, hasKeyShare, sniPolicy, cliConn, prtVer) {
+				if checkTLS13Only(logger, isTLS13, sniPolicy, cliConn, prtVer) {
 					return
 				}
 				logger.Info("SNI policy: ", sniPolicy)
@@ -401,11 +401,11 @@ const (
 	tlsHandshakeHeaderLen       = 4
 	tlsHandshakeTypeClientHello = 0x1
 	tlsExtTypeSNI               = 0x0000
-	tlsExtTypeKeyShare          = 0x0033
+	tlsExtTypeSupportedVersions = 0x002b
 	tlsExtTypeECH               = 0x00fe
 )
 
-func parseClientHello(data []byte) (prtVer []byte, sniStart int, sniLen int, hasKeyShare, hasECH bool, err error) {
+func parseClientHello(data []byte) (prtVer []byte, sniStart int, sniLen int, isTLS13, hasECH bool, err error) {
 	if data[0] != tlsRecordTypeHandshake {
 		return nil, -1, 0, false, false, E.New("not a TLS handshake record")
 	}
@@ -486,45 +486,45 @@ func parseClientHello(data []byte) (prtVer []byte, sniStart int, sniLen int, has
 		extDataStart := offset + 4
 		extDataEnd := extDataStart + extLen
 		if extDataEnd > extensionsEnd {
-			return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("extension length exceeds extensions block")
+			return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("extension length exceeds extensions block")
 		}
 
 		switch extType {
-		case tlsExtTypeKeyShare:
-			hasKeyShare = true
+		case tlsExtTypeSupportedVersions:
+			isTLS13 = true
 		case tlsExtTypeECH:
 			hasECH = true
 		case tlsExtTypeSNI:
 			if sniStart != -1 {
-				return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("duplicate SNI extension")
+				return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("duplicate SNI extension")
 			}
 			if extLen < 2 {
-				return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("malformed SNI extension (too short for list length)")
+				return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("malformed SNI extension (too short for list length)")
 			}
 			listLen := int(binary.BigEndian.Uint16(data[extDataStart : extDataStart+2]))
 			if listLen+2 != extLen {
-				return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("SNI list length field mismatch")
+				return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("SNI list length field mismatch")
 			}
 			cursor := extDataStart + 2
 			if cursor+3 > extDataEnd {
-				return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("SNI entry too short")
+				return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("SNI entry too short")
 			}
 			nameType := data[cursor]
 			if nameType != 0 {
-				return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("unsupported SNI name type")
+				return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("unsupported SNI name type")
 			}
 			nameLen := int(binary.BigEndian.Uint16(data[cursor+1 : cursor+3]))
 			nameStart := cursor + 3
 			nameEnd := nameStart + nameLen
 			if nameEnd > extDataEnd {
-				return prtVer, sniStart, sniLen, hasKeyShare, hasECH, E.New("SNI name length exceeds extension")
+				return prtVer, sniStart, sniLen, isTLS13, hasECH, E.New("SNI name length exceeds extension")
 			}
 			sniStart = nameStart
 			sniLen = nameLen
 		}
 		offset = extDataEnd
 	}
-	return prtVer, sniStart, sniLen, hasKeyShare, hasECH, nil
+	return prtVer, sniStart, sniLen, isTLS13, hasECH, nil
 }
 
 func bytesHasPrefix(b []byte, prefixes ...string) bool {
