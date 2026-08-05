@@ -123,7 +123,7 @@ func forward(logger log.Logger, srcConn, dstConn net.Conn, dstAddr string) {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			logger.Error("Forward ", dstTCPConn.RemoteAddr(), "->", dstAddr, ": ", err)
+			logger.Error("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, ": ", err)
 			return
 		}
 		logger.Debug("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, " finished")
@@ -226,34 +226,23 @@ func handleTLS(logger log.Logger, recordLen int,
 		logger.Error("Parse record: ", err)
 		return
 	}
-
-	mode := p.Mode
-	if !hasKeyShare {
-		if p.PreTLS13Mode != ModeUnset {
-			mode = p.PreTLS13Mode
-		}
-		switch mode {
-		case ModeBlock, ModeTLSAlert:
-			logger.Info("Connection blocked: key_share missing from ClientHello")
-			if mode == ModeTLSAlert {
-				sendTLSAlert(logger, cliConn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
-			}
-			return
-		}
-		logger.Trace("key_share missing from ClientHello")
-	} else if mode == ModeTLSAlert {
-		logger.Info("Connection blocked (TLS alert)")
+	if p.Mode == ModeTLSAlert {
 		sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 		return
 	}
+	if p.TLS13Only.IsTrue() && !hasKeyShare {
+		logger.Info("Connection blocked: key_share missing from ClientHello")
+		sendTLSAlert(logger, cliConn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
+		return
+	}
 
+	var mode Mode
 	if sniStart <= 0 {
-		const msg = "SNI not found"
 		if fromSNIProxy {
-			logger.Error(msg)
+			logger.Error("SNI not found")
 			return
 		}
-		logger.Info(msg)
+		logger.Info("SNI not found")
 		mode = ModeDirect
 	} else if hasECH {
 		msg := []any{"ECH detected ", "(SNI=", record[sniStart : sniStart+sniLen], "), ignored"}
@@ -273,11 +262,16 @@ func handleTLS(logger log.Logger, recordLen int,
 		switch p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
 			if sniPolicy, exists := domainMatcher.Find(sniStr); exists {
-				if checkPolicyBlock(logger, cliConn, prtVer, hasKeyShare, sniPolicy, sniStr) {
+				if sniPolicy.Mode == ModeBlock {
+					logger.Info("Connection blocked: ", sniStr)
+					return
+				}
+				if sniPolicy.Mode == ModeTLSAlert {
+					logger.Info("Connection blocked (TLS alert): ", sniStr)
+					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
 				p = mergePolicies(sniPolicy, p)
-				mode = getEffectivePolicyMode(p, hasKeyShare)
 				logger.Info("SNI policy: ", p)
 			}
 		case SniffOverrideAlways, SniffOverridePolicyExists:
@@ -297,7 +291,9 @@ func handleTLS(logger log.Logger, recordLen int,
 					logger.Info("Connection blocked: ", sniStr)
 					return
 				}
-				if checkPolicyBlock(logger, cliConn, prtVer, hasKeyShare, sniPolicy, sniStr) {
+				if sniPolicy.Mode == ModeTLSAlert {
+					logger.Info("Connection blocked (TLS alert): ", sniStr)
+					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
 				logger.Info("SNI policy: ", sniPolicy)
@@ -311,7 +307,6 @@ func handleTLS(logger log.Logger, recordLen int,
 						dstConn.Close()
 					}
 					dstConn, p, target = newConn, sniPolicy, newTarget
-					mode = getEffectivePolicyMode(p, hasKeyShare)
 					if !fromSNIProxy {
 						logger.Info("Target has been changed to ", sniStr)
 					}
@@ -370,30 +365,6 @@ func handleTLS(logger log.Logger, recordLen int,
 		logger.Info("Sent ClientHello with fake packet")
 	}
 	return dstConn, originHost, true
-}
-
-func getEffectivePolicyMode(p *Policy, hasKeyShare bool) Mode {
-	if !hasKeyShare && p.PreTLS13Mode != ModeUnset {
-		return p.PreTLS13Mode
-	}
-	return p.Mode
-}
-
-func checkPolicyBlock(logger log.Logger, cliConn net.Conn, prtVer []byte, hasKeyShare bool, p *Policy, sniStr string) bool {
-	switch getEffectivePolicyMode(p, hasKeyShare) {
-	case ModeBlock:
-		logger.Info("Connection blocked: ", sniStr)
-	case ModeTLSAlert:
-		logger.Info("Connection blocked (TLS alert): ", sniStr)
-		alertType := tlsAlertAccessDenied
-		if !hasKeyShare {
-			alertType = tlsAlertProtocolVersion
-		}
-		sendTLSAlert(logger, cliConn, prtVer, alertType, tlsAlertLevelFatal)
-	default:
-		return false
-	}
-	return true
 }
 
 const (
