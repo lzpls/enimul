@@ -34,10 +34,10 @@
   },
   "ip_pools": {
     "cloudflare": {
-      "ips": ["www.visa.cn", "www.ietf.org", "fbi.gov"],
+      "ips": ["enimul.cf.090227.xyz", "www.visa.cn", "time.is", "mfa.gov.ua"],
       "port": 443,
       "wait_scan_on_startup": true,
-      "fallback_ip": "www.visa.cn"
+      "fallback_ip": "enimul.cf.090227.xyz"
     },
     "cloudfront": {
       "ips": ["108.158.4.0/24", "futuregadget-lab.com"],
