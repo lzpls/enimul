@@ -17,18 +17,24 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 )
 
-func (c *Core) handleTunnel(
-	p *Policy, dstConn, cliConn net.Conn, logger log.Logger,
-	oldTarget, target, originHost, originPort string,
-) {
+type tunnelSession = struct {
+	logger                 log.Logger
+	p                      *Policy
+	cliConn, dstConn       net.Conn
+	oldTarget, target      string
+	originHost, originPort string
+	fromSNIProxy           bool
+}
+
+func (c *Core) handleTunnel(ts *tunnelSession) {
 	var (
 		err       error
 		closeHere = true
 	)
 	closeBoth := func() {
-		cliConn.Close()
-		if dstConn != nil {
-			dstConn.Close()
+		ts.cliConn.Close()
+		if ts.dstConn != nil {
+			ts.dstConn.Close()
 		}
 	}
 	defer func() {
@@ -37,33 +43,30 @@ func (c *Core) handleTunnel(
 		}
 	}()
 
-	if p.Mode == ModeRaw {
-		if dstConn == nil {
-			dstConn, err = dial.DialTCPTimeout(target, p.ConnectTimeout)
+	if ts.p.Mode == ModeRaw {
+		if ts.dstConn == nil {
+			ts.dstConn, err = dial.DialTCPTimeout(ts.target, ts.p.ConnectTimeout)
 			if err != nil {
-				logger.Error("Connection to ", oldTarget, " failed: ", err)
+				ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 				return
 			}
 		}
 	} else {
-		br := bufio.NewReader(cliConn)
+		br := bufio.NewReader(ts.cliConn)
 		peekBytes, err := br.Peek(10)
 		if err != nil {
 			if len(peekBytes) == 0 && errors.Is(err, io.EOF) {
-				logger.Error("Empty tunnel")
+				ts.logger.Error("Empty tunnel")
 			} else {
-				logger.Error("Read first packet: ", err)
+				ts.logger.Error("Read first packet: ", err)
 			}
 			return
 		}
 
 		if peekBytes[0] == tlsRecordTypeHandshake {
 			if peekBytes[1] == tlsMajorVersion {
-				payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
-				var ok bool
-				if dstConn, _, ok = c.handleTLS(logger, payloadLen,
-					p, originHost, oldTarget, target, originPort,
-					br, cliConn, dstConn, false); !ok {
+				payloadLen := 5+int(binary.BigEndian.Uint16(peekBytes[3:5]))
+				if !c.handleTLS(ts,payloadLen, br) {
 					return
 				}
 			}
@@ -71,27 +74,21 @@ func (c *Core) handleTunnel(
 			"GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
 			"OPTIONS ", "TRACE ", "PATCH ",
 		) {
-			req, err := http.ReadRequest(br)
-			if err == nil {
-				var ok bool
-				if dstConn, ok = handleHTTP(logger, req,
-					p, originHost, oldTarget, target,
-					cliConn, dstConn); !ok {
-					return
-				}
-			} else {
-				logger.Error("Trying parsing HTTP: ", err)
+			if req, err := http.ReadRequest(br); err != nil {
+				ts.logger.Error("Trying parsing HTTP: ", err)
+			} else if !handleHTTP(ts, req) {
+				return
 			}
 		} else {
-			logger.Info("Unknown protocol")
+			ts.logger.Info("Unknown protocol")
 		}
-		if !drainBuffered(logger, br, dstConn) {
+		if !drainBuffered(ts.logger, br, ts.dstConn) {
 			return
 		}
 	}
 
 	closeHere = false
-	forward(logger, cliConn, dstConn, originHost)
+	forward(ts.logger, ts.cliConn, ts.dstConn, ts.originHost)
 }
 
 func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
@@ -147,27 +144,25 @@ func forward(logger log.Logger, srcConn, dstConn net.Conn, dstAddr string) {
 	}()
 }
 
-func handleHTTP(
-	logger log.Logger, req *http.Request,
-	p *Policy, originHost, oldTarget, target string,
-	cliConn, dstConn net.Conn) (_ net.Conn, _ bool) {
-	var err error
+func handleHTTP(ts *tunnelSession, req *http.Request) (ok bool) {
 	defer req.Body.Close()
 
 	host := req.Host
 	if host == "" {
 		host = req.URL.Host
 		if host == "" {
-			host = originHost
+			host = ts.originHost
 		}
 	}
-	logger.Info("host=", host, " method=", req.Method, " url=", req.URL)
+	ts.logger.Info("host=", host, " method=", req.Method, " url=", req.URL)
 
-	if p.HttpStatus != 0 && p.HttpStatus != unsetInt {
-		statusLine := strconv.Itoa(p.HttpStatus) + " " + http.StatusText(p.HttpStatus)
+	var err error
+
+	if ts.p.HttpStatus != 0 && ts.p.HttpStatus != unsetInt {
+		statusLine := strconv.Itoa(ts.p.HttpStatus) + " " + http.StatusText(ts.p.HttpStatus)
 		resp := &http.Response{
 			Status:        statusLine,
-			StatusCode:    p.HttpStatus,
+			StatusCode:    ts.p.HttpStatus,
 			Proto:         req.Proto,
 			ProtoMajor:    1,
 			ProtoMinor:    1,
@@ -175,20 +170,20 @@ func handleHTTP(
 			ContentLength: 0,
 			Close:         true,
 		}
-		if p.HttpStatus == 301 || p.HttpStatus == 302 {
+		if ts.p.HttpStatus == 301 || ts.p.HttpStatus == 302 {
 			resp.Header.Set("Location", "https://"+host+req.URL.RequestURI())
 		}
-		if err = resp.Write(cliConn); err != nil {
-			logger.Error("Send ", p.HttpStatus, ": ", err)
+		if err = resp.Write(ts.cliConn); err != nil {
+			ts.logger.Error("Send ", ts.p.HttpStatus, ": ", err)
 		} else {
-			logger.Info("Sent ", statusLine)
+			ts.logger.Info("Sent ", statusLine)
 		}
 		return
 	}
-	if dstConn == nil {
-		dstConn, err = dial.DialTCPTimeout(target, p.ConnectTimeout)
+	if ts.dstConn == nil {
+		ts.dstConn, err = dial.DialTCPTimeout(ts.target, ts.p.ConnectTimeout)
 		if err != nil {
-			logger.Error("Connection to ", oldTarget, " failed: ", err)
+			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			resp := &http.Response{
 				Status:        status502,
 				StatusCode:    502,
@@ -199,186 +194,183 @@ func handleHTTP(
 				ContentLength: 0,
 				Close:         true,
 			}
-			if err = resp.Write(cliConn); err != nil {
-				logger.Debug("Failed to send 502: ", err)
+			if err = resp.Write(ts.cliConn); err != nil {
+				ts.logger.Debug("Failed to send 502: ", err)
 			}
 			return
 		}
 	}
-	if err := req.Write(dstConn); err != nil {
-		logger.Error("Forward HTTP request: ", err)
+	if err := req.Write(ts.dstConn); err != nil {
+		ts.logger.Error("Forward HTTP request: ", err)
 		return
 	}
-	return dstConn, true
+	return true
 }
 
-func (c *Core) handleTLS(logger log.Logger, recordLen int,
-	p *Policy, originHost, oldTarget, target, originPort string,
-	br *bufio.Reader, cliConn, dstConn net.Conn,
-	fromSNIProxy bool) (_ net.Conn, _ string, _ bool) {
+func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok bool) {
 	record := make([]byte, recordLen)
 	if _, err := io.ReadFull(br, record); err != nil {
-		logger.Error("Read first record: ", err)
+		ts.logger.Error("Read first record: ", err)
 		return
 	}
 	prtVer, sniStart, sniLen, isTLS13, hasECH, err := parseClientHello(record)
 	if err != nil {
-		logger.Error("Parse record: ", err)
+		ts.logger.Error("Parse record: ", err)
 		return
 	}
-	if p.Mode == ModeTLSAlert {
-		sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
+	if ts.p.Mode == ModeTLSAlert {
+		sendTLSAlert(ts.logger, ts.cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 		return
 	}
-	if checkTLS13Only(logger, isTLS13, p, cliConn, prtVer) {
+	if !checkTLS13Only(ts.logger, isTLS13, ts.p, ts.cliConn, prtVer) {
 		return
 	}
 
 	var mode Mode
 	if sniStart <= 0 {
 		const msg = "SNI not found"
-		if fromSNIProxy {
-			logger.Error(msg)
+		if ts.fromSNIProxy {
+			ts.logger.Error(msg)
 			return
 		}
-		logger.Info(msg)
+		ts.logger.Info(msg)
 		mode = ModeDirect
 	} else if hasECH {
 		msg := []any{"ECH detected ", "(SNI=", record[sniStart : sniStart+sniLen], "), ignored"}
-		if fromSNIProxy {
-			logger.Error(msg...)
+		if ts.fromSNIProxy {
+			ts.logger.Error(msg...)
 			return
 		}
-		logger.Info(msg...)
+		ts.logger.Info(msg...)
 		mode = ModeDirect
-	} else if sniStr := string(record[sniStart : sniStart+sniLen]); fromSNIProxy || originHost != sniStr {
-		if fromSNIProxy {
-			logger.Info("SNI: ", sniStr)
-			originHost = sniStr
+	} else if sniStr := string(record[sniStart : sniStart+sniLen]); ts.fromSNIProxy || ts.originHost != sniStr {
+		if ts.fromSNIProxy {
+			ts.logger.Info("SNI: ", sniStr)
+			ts.originHost = sniStr
 		} else {
-			logger.Info("Mismatched SNI: ", sniStr)
+			ts.logger.Info("Mismatched SNI: ", sniStr)
 		}
-		switch p.SniffOverrideMode {
+		switch ts.p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
 			if sniPolicy, exists := c.domainMatcher.Find(sniStr); exists {
 				switch sniPolicy.Mode {
 				case ModeBlock:
-					logger.Info("Connection blocked: ", sniStr)
+					ts.logger.Info("Connection blocked: ", sniStr)
 					return
 				case ModeTLSAlert:
-					logger.Info("Connection blocked (TLS alert): ", sniStr)
-					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
+					ts.logger.Info("Connection blocked (TLS alert): ", sniStr)
+					sendTLSAlert(ts.logger, ts.cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
-				if checkTLS13Only(logger, isTLS13, sniPolicy, cliConn, prtVer) {
+				if !checkTLS13Only(ts.logger, isTLS13, sniPolicy, ts.cliConn, prtVer) {
 					return
 				}
-				p = mergePolicies(sniPolicy, p)
-				logger.Info("SNI policy: ", p)
+				ts.p = mergePolicies(sniPolicy, ts.p)
+				ts.logger.Info("SNI policy: ", ts.p)
 			}
 		case SniffOverrideAlways, SniffOverridePolicyExists:
 			newDst, sniPolicy, failed, blocked, policyNotExists := c.genPolicy(
-				logger, sniStr, false, !fromSNIProxy && p.SniffOverrideMode == SniffOverridePolicyExists)
+				ts.logger, sniStr, false, !ts.fromSNIProxy && ts.p.SniffOverrideMode == SniffOverridePolicyExists)
 			switch {
 			case failed:
-				if fromSNIProxy {
-					logger.Error("Failed to generate SNI Policy")
+				if ts.fromSNIProxy {
+					ts.logger.Error("Failed to generate SNI Policy")
 					return
 				}
-				logger.Warn("Failed to generate SNI policy; falling back to origin")
+				ts.logger.Warn("Failed to generate SNI policy; falling back to origin")
 			case policyNotExists:
-				logger.Info("SNI policy not found; falling back to origin")
+				ts.logger.Info("SNI policy not found; falling back to origin")
 			default:
 				if blocked {
-					logger.Info("Connection blocked: ", sniStr)
+					ts.logger.Info("Connection blocked: ", sniStr)
 					return
 				}
 				if sniPolicy.Mode == ModeTLSAlert {
-					logger.Info("Connection blocked (TLS alert): ", sniStr)
-					sendTLSAlert(logger, cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
+					ts.logger.Info("Connection blocked (TLS alert): ", sniStr)
+					sendTLSAlert(ts.logger, ts.cliConn, prtVer, tlsAlertAccessDenied, tlsAlertLevelFatal)
 					return
 				}
-				if checkTLS13Only(logger, isTLS13, sniPolicy, cliConn, prtVer) {
+				if !checkTLS13Only(ts.logger, isTLS13, sniPolicy, ts.cliConn, prtVer) {
 					return
 				}
-				logger.Info("SNI policy: ", sniPolicy)
+				ts.logger.Info("SNI policy: ", sniPolicy)
 				if sniPolicy.Port != 0 && sniPolicy.Port != unsetInt {
-					originPort = F.Int(sniPolicy.Port)
+					ts.originPort = F.Int(sniPolicy.Port)
 				}
-				newTarget := net.JoinHostPort(newDst, originPort)
+				newTarget := net.JoinHostPort(newDst, ts.originPort)
 				newConn, err := dial.DialTCPTimeout(newTarget, sniPolicy.ConnectTimeout)
 				if err == nil {
-					if dstConn != nil {
-						dstConn.Close()
+					if ts.dstConn != nil {
+						ts.dstConn.Close()
 					}
-					dstConn, p, target = newConn, sniPolicy, newTarget
-					if !fromSNIProxy {
-						logger.Info("Target has been changed to ", sniStr)
+					ts.dstConn, ts.p, ts.target = newConn, sniPolicy, newTarget
+					if !ts.fromSNIProxy {
+						ts.logger.Info("Target has been changed to ", sniStr)
 					}
-				} else if fromSNIProxy {
-					logger.Error("Connection to ", newTarget, " failed:", err)
+				} else if ts.fromSNIProxy {
+					ts.logger.Error("Connection to ", newTarget, " failed:", err)
 					return
 				} else {
-					logger.Error("Connection to ", newTarget, " failed:", err, "; falling back to origin")
+					ts.logger.Error("Connection to ", newTarget, " failed:", err, "; falling back to origin")
 				}
 			}
 		}
 	}
 
-	if dstConn == nil {
-		dstConn, err = dial.DialTCPTimeout(target, p.ConnectTimeout)
+	if ts.dstConn == nil {
+		ts.dstConn, err = dial.DialTCPTimeout(ts.target, ts.p.ConnectTimeout)
 		if err != nil {
-			logger.Error("Connection to ", oldTarget, " failed: ", err)
+			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			return
 		}
 	}
 	if mode == ModeUnset {
-		mode = p.Mode
+		mode = ts.p.Mode
 	}
 
 	switch mode {
 	case ModeDirect, ModeRaw:
-		if _, err = dstConn.Write(record); err != nil {
-			logger.Error("Send ClientHello directly: ", err)
+		if _, err = ts.dstConn.Write(record); err != nil {
+			ts.logger.Error("Send ClientHello directly: ", err)
 			return
 		}
-		logger.Info("Sent ClientHello directly")
+		ts.logger.Info("Sent ClientHello directly")
 	case ModeTLSRF:
-		err = sendRecords(dstConn, record, sniStart, sniLen,
-			p.NumRecords, p.NumSegments, p.MinorVer,
-			p.OOB.IsTrue(), p.OOBEx.IsTrue(),
-			p.WaitForAck.IsTrue(), p.SendInterval)
+		err = sendRecords(ts.dstConn, record, sniStart, sniLen,
+			ts.p.NumRecords, ts.p.NumSegments, ts.p.MinorVer,
+			ts.p.OOB.IsTrue(), ts.p.OOBEx.IsTrue(),
+			ts.p.WaitForAck.IsTrue(), ts.p.SendInterval)
 		if err != nil {
-			logger.Error("TLS fragment: ", err)
+			ts.logger.Error("TLS fragment: ", err)
 			return
 		}
-		logger.Info("Sent ClientHello in fragments")
+		ts.logger.Info("Sent ClientHello in fragments")
 	case ModeTTLD:
-		isIPv6 := target[0] == '['
-		ttl, err := c.getFakeTTL(logger, p, target, isIPv6)
+		isIPv6 := ts.target[0] == '['
+		ttl, err := c.getFakeTTL(ts.logger, ts.p, ts.target, isIPv6)
 		if err != nil {
-			logger.Error("Get fake TTL: ", err)
+			ts.logger.Error("Get fake TTL: ", err)
 			return
 		}
 		if err = desyncSend(
-			dstConn, isIPv6, record,
-			sniStart, sniLen, ttl, p.FakeSleep,
+			ts.dstConn, isIPv6, record,
+			sniStart, sniLen, ttl, ts.p.FakeSleep,
 		); err != nil {
-			logger.Error("TTL desync: ", err)
+			ts.logger.Error("TTL desync: ", err)
 			return
 		}
-		logger.Info("Sent ClientHello with fake packet")
+		ts.logger.Info("Sent ClientHello with fake packet")
 	}
-	return dstConn, originHost, true
+	return true
 }
 
-func checkTLS13Only(logger log.Logger, isTLS13 bool, p *Policy, conn net.Conn, prtVer []byte) bool {
+func checkTLS13Only(logger log.Logger, isTLS13 bool, p *Policy, conn net.Conn, prtVer []byte) (ok bool) {
 	if !isTLS13 && p.TLS13Only.IsTrue() {
 		logger.Info("Connection blocked: key_share missing from ClientHello")
 		sendTLSAlert(logger, conn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
-		return true
+		return
 	}
-	return false
+	return true
 }
 
 const (

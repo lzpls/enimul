@@ -216,5 +216,14 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 	}
 
 	closeHere = false
-	c.handleTunnel(policy, dstConn, cliConn, logger, oldTarget, target, originHost, originPort)
+	c.handleTunnel(&tunnelSession{
+		logger:     logger,
+		p:          policy,
+		cliConn:    cliConn,
+		dstConn:    dstConn,
+		oldTarget:  oldTarget,
+		target:     target,
+		originHost: originHost,
+		originPort: originPort,
+	})
 }

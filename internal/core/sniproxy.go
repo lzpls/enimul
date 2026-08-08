@@ -25,6 +25,7 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 		logger.Error("Failed to start SNI proxy server: ", err)
 		return
 	}
+	defer ln.Close()
 	addr := ln.Addr().String()
 	logger.Info("SNI proxy server started at ", addr)
 	_, port, err := net.SplitHostPort(addr)
@@ -47,7 +48,6 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 			logger.Warn("Accept failed: ", err)
 		} else {
 			logger.Error("Accept failed (fatal): ", err)
-			ln.Close()
 			return
 		}
 	}
@@ -79,16 +79,19 @@ func (c *Core) handleTunnelSNI(conn net.Conn, connID uint32, port string) {
 		logger.Error("Not a standard TLS ClientHello")
 		return
 	}
-	payloadLen := 5 + int(binary.BigEndian.Uint16(header[3:5]))
 
-	srvConn, finalDst, ok := c.handleTLS(logger, payloadLen, &Policy{SniffOverrideMode: SniffOverrideAlways}, "", "", "", port, br, conn, nil, true)
-	if !ok {
-		return
+	ts := &tunnelSession{
+		logger:       logger,
+		p:            &Policy{SniffOverrideMode: SniffOverrideAlways},
+		cliConn:      conn,
+		originPort:   port,
+		fromSNIProxy: true,
 	}
-	if !drainBuffered(logger, br, srvConn) {
+	payloadLen := 5 + int(binary.BigEndian.Uint16(header[3:5]))
+	if !c.handleTLS(ts, payloadLen, br) || !drainBuffered(logger, br, ts.dstConn) {
 		return
 	}
 
 	closeHere = false
-	forward(logger, conn, srvConn, finalDst)
+	forward(logger, conn, ts.dstConn, ts.originHost)
 }

@@ -157,7 +157,16 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 	}
 
 	closeHere = false
-	c.handleTunnel(policy, dstConn, cliConn, logger, oldDest, dest, originHost, originPort)
+	c.handleTunnel(&tunnelSession{
+		logger:     logger,
+		p:          policy,
+		cliConn:    cliConn,
+		dstConn:    dstConn,
+		oldTarget:  oldDest,
+		target:     dest,
+		originHost: originHost,
+		originPort: originPort,
+	})
 }
 
 func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *http.Request) {
