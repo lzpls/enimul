@@ -39,7 +39,9 @@ func main() {
 			configPath = "config.json"
 		}
 	}
-	configSocks5Addr, configHTTPAddr, configSNIAddr, err := core.LoadConfig(configPath, *disallowUnknownFields)
+
+	instance := new(core.Core)
+	configSocks5Addr, configHTTPAddr, configSNIAddr, err := instance.LoadConfig(configPath, *disallowUnknownFields)
 	if err != nil {
 		F.Println("Failed to load config:", err)
 		return
@@ -52,9 +54,9 @@ func main() {
 	startPprofServer()
 
 	var wg sync.WaitGroup
-	wg.Go(func() { core.SOCKS5Serve(*socks5Addr, configSocks5Addr) })
-	wg.Go(func() { core.HTTPServe(*httpAddr, configHTTPAddr) })
-	wg.Go(func() { core.SNIServe(*sniAddr, configSNIAddr) })
+	wg.Go(func() { instance.SOCKS5Serve(*socks5Addr, configSocks5Addr) })
+	wg.Go(func() { instance.HTTPServe(*httpAddr, configHTTPAddr) })
+	wg.Go(func() { instance.SNIServe(*sniAddr, configSNIAddr) })
 	wg.Wait()
 }
 

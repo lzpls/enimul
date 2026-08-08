@@ -29,10 +29,13 @@ type Config struct {
 	IpPolicies       orderedmap.Map[Policy]  `json:"ip_policies"`
 }
 
-func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
+func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
+	anErr := func(err error) (string, string, string, error) {
+		return "", "", "", err
+	}
 	file, err := os.Open(filePath)
 	if err != nil {
-		return "", "", "", err
+		return anErr(err)
 	}
 	decoder := json.NewDecoder(file)
 	if disallowUnknownFields {
@@ -42,66 +45,66 @@ func LoadConfig(filePath string, disallowUnknownFields bool) (string, string, st
 	err = decoder.Decode(&conf)
 	file.Close()
 	if err != nil {
-		return "", "", "", err
+		return anErr(err)
 	}
 
 	if err := setLogOutput(conf.LogOutput); err != nil {
-		return "", "", "", err
+		return anErr(err)
 	}
 	logLevel = conf.LogLevel
 
 	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
-		return "", "", "", err
+		return anErr(err)
 	}
 	dial.SetLogger(newLogger("[dial]"))
 
 	if conf.IPPools.Len() > 0 {
-		ipPools = &conf.IPPools
-		for tag, pool := range ipPools.All() {
+		c.ipPools = &conf.IPPools
+		for tag, pool := range c.ipPools.All() {
 			pool.Init(newLogger("P[" + tag + "]"))
 		}
 	}
 
-	defaultPolicy = conf.DefaultPolicy
+	c.defaultPolicy = conf.DefaultPolicy
 
-	hostsMatcher = addrtrie.NewDomainMatcher[string]()
+	c.hostsMatcher = addrtrie.NewDomainMatcher[string]()
 	for patterns, host := range conf.Hosts.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, pattern := range expandPattern(elem) {
-				hostsMatcher.Add(pattern, host)
+				c.hostsMatcher.Add(pattern, host)
 			}
 		}
 	}
 
-	domainMatcher = addrtrie.NewDomainMatcher[*Policy]()
+	c.domainMatcher = addrtrie.NewDomainMatcher[*Policy]()
 	for patterns, policy := range conf.DomainPolicies.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, pattern := range expandPattern(elem) {
-				domainMatcher.Add(pattern, &policy)
+				c.domainMatcher.Add(pattern, &policy)
 			}
 		}
 	}
 
-	ipMatcher = addrtrie.NewIPv4Trie[*Policy]()
-	ipv6Matcher = addrtrie.NewIPv6Trie[*Policy]()
+	c.ipv4Matcher = addrtrie.NewIPv4Trie[*Policy]()
+	c.ipv6Matcher = addrtrie.NewIPv6Trie[*Policy]()
 	for patterns, policy := range conf.IpPolicies.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, ipOrNet := range expandPattern(elem) {
 				if isIPv6(ipOrNet) {
-					ipv6Matcher.Insert(ipOrNet, &policy)
+					c.ipv6Matcher.Insert(ipOrNet, &policy)
 				} else {
-					ipMatcher.Insert(ipOrNet, &policy)
+					c.ipv4Matcher.Insert(ipOrNet, &policy)
 				}
 			}
 		}
 	}
 
-	if err = setDNS(conf.DNSConfig); err != nil {
-		return "", "", "", err
+	if err = c.setDNS(conf.DNSConfig); err != nil {
+		return anErr(err)
 	}
 
-	if err = setTTLProbing(conf.TTLProbingConfig); err != nil {
-		return "", "", "", err
+	if err = c.setTTLProbing(conf.TTLProbingConfig); err != nil {
+		return anErr(err)
 	}
 
 	return conf.Socks5Addr, conf.HttpAddr, conf.SNIProxyAddr, nil

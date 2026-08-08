@@ -10,7 +10,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 )
 
-func SNIServe(cmdAddr, configAddr string) {
+func (c *Core) SNIServe(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -40,7 +40,7 @@ func SNIServe(cmdAddr, configAddr string) {
 			if connID > maxConnID {
 				connID = 1
 			}
-			go handleTunnelSNI(conn, connID, port)
+			go c.handleTunnelSNI(conn, connID, port)
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
@@ -53,7 +53,7 @@ func SNIServe(cmdAddr, configAddr string) {
 	}
 }
 
-func handleTunnelSNI(conn net.Conn, connID uint32, port string) {
+func (c *Core) handleTunnelSNI(conn net.Conn, connID uint32, port string) {
 	closeHere := true
 	defer func() {
 		if closeHere {
@@ -81,7 +81,7 @@ func handleTunnelSNI(conn net.Conn, connID uint32, port string) {
 	}
 	payloadLen := 5 + int(binary.BigEndian.Uint16(header[3:5]))
 
-	srvConn, finalDst, ok := handleTLS(logger, payloadLen, &Policy{SniffOverrideMode: SniffOverrideAlways}, "", "", "", port, br, conn, nil, true)
+	srvConn, finalDst, ok := c.handleTLS(logger, payloadLen, &Policy{SniffOverrideMode: SniffOverrideAlways}, "", "", "", port, br, conn, nil, true)
 	if !ok {
 		return
 	}

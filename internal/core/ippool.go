@@ -16,10 +16,7 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
-	"github.com/lzpls/enimul/internal/orderedmap"
 )
-
-var ipPools *orderedmap.Map[*IPPool]
 
 const (
 	defaultTimeout        = 1 * time.Second
@@ -342,11 +339,11 @@ func (p *IPPool) Get() string {
 	return p.fallbackIP
 }
 
-func getFromIPPool(tag string) (ipStr string, err error) {
-	if ipPools == nil || ipPools.Len() == 0 {
+func (c *Core) getFromIPPool(tag string) (ipStr string, err error) {
+	if c.ipPools == nil || c.ipPools.Len() == 0 {
 		return "", E.New("no ip pools")
 	}
-	ipPool, exists := ipPools.Get(tag)
+	ipPool, exists := c.ipPools.Get(tag)
 	if !exists {
 		return "", E.New("ip pool " + tag + " does not exist")
 	}

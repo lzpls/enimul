@@ -17,11 +17,11 @@ import (
 	"github.com/lzpls/enimul/internal/singleflight"
 )
 
-var (
-	calcTTL         func(int) (int, error)
-	ttlCache        *freelru.ShardedLRU[string, int]
-	ttlProbingGroup *singleflight.Group[string, int]
-)
+type ttlProbingFields = struct {
+	calc         func(int) (int, error)
+	cache        *freelru.ShardedLRU[string, int]
+	probingGroup *singleflight.Group[string, int]
+}
 
 type TTLProbingConfig struct {
 	FakeTTLRules  string `json:"fake_ttl_rules"`
@@ -30,19 +30,19 @@ type TTLProbingConfig struct {
 	CacheCapacity uint32 `json:"cache_capacity"`
 }
 
-func setTTLProbing(c TTLProbingConfig) error {
-	if err := loadTTLRules(c.FakeTTLRules); err != nil {
+func (c *Core) setTTLProbing(conf TTLProbingConfig) error {
+	if err := c.loadTTLRules(conf.FakeTTLRules); err != nil {
 		return err
 	}
-	if c.SingleFlight {
-		ttlProbingGroup = new(singleflight.Group[string, int])
+	if conf.SingleFlight {
+		c.ttl.probingGroup = new(singleflight.Group[string, int])
 	}
-	if !c.DisableCache {
-		if c.CacheCapacity == 0 {
-			c.CacheCapacity = 1024
+	if !conf.DisableCache {
+		if conf.CacheCapacity == 0 {
+			conf.CacheCapacity = 1024
 		}
 		var err error
-		ttlCache, err = freelru.NewSharded[string, int](c.CacheCapacity, hashStringXXHASH)
+		c.ttl.cache, err = freelru.NewSharded[string, int](conf.CacheCapacity, hashStringXXHASH)
 		if err != nil {
 			return E.WithStr("init TTL cache", err)
 		}
@@ -110,16 +110,16 @@ func parseTTLRules(conf string) ([]ttlRule, error) {
 	return rules, nil
 }
 
-func loadTTLRules(conf string) error {
+func (c *Core) loadTTLRules(conf string) error {
 	if conf == "" {
-		calcTTL = func(ttl int) (int, error) { return ttl - 1, nil }
+		c.ttl.calc = func(ttl int) (int, error) { return ttl - 1, nil }
 		return nil
 	}
 	rules, err := parseTTLRules(conf)
 	if err != nil {
 		return E.WithStr("parse ttl rules", err)
 	}
-	calcTTL = func(ttl int) (int, error) {
+	c.ttl.calc = func(ttl int) (int, error) {
 		for _, r := range rules {
 			if ttl >= r.threshold {
 				if r.typ == '-' {
@@ -134,41 +134,41 @@ func loadTTLRules(conf string) error {
 	return nil
 }
 
-func getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
+func (c *Core) getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
 	ip, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return 0, false, err
 	}
 
-	if ttlCache != nil {
-		if ttl, ok := ttlCache.Get(ip); ok {
+	if c.ttl.cache != nil {
+		if ttl, ok := c.ttl.cache.Get(ip); ok {
 			return ttl, true, nil
 		}
 	}
 
 	ttl := -1
-	if ttlProbingGroup != nil {
-		ttl, err, _ = ttlProbingGroup.Do(addr, func() (int, error) {
-			return probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
+	if c.ttl.probingGroup != nil {
+		ttl, err, _ = c.ttl.probingGroup.Do(addr, func() (int, error) {
+			return c.probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
 		})
 	} else {
-		ttl, err = probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
+		ttl, err = c.probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
 	}
 	return ttl, false, err
 }
 
-func getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (int, error) {
+func (c *Core) getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (int, error) {
 	if p.FakeTTL != 0 && p.FakeTTL != unsetInt {
 		return p.FakeTTL, nil
 	}
-	ttl, cached, err := getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
+	ttl, cached, err := c.getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
 	if err != nil {
 		return -1, E.WithStr("get minimum reachable ttl", err)
 	}
 	if ttl == unsetInt {
 		return -1, E.New("reachable ttl not found")
 	}
-	if ttl, err = calcTTL(ttl); err != nil {
+	if ttl, err = c.ttl.calc(ttl); err != nil {
 		return -1, E.WithStr("calculate fake ttl", err)
 	}
 	if logger != nil {
@@ -188,7 +188,7 @@ func ttlLevelOption(isIPv6 bool) (int, int) {
 	return syscall.IPPROTO_IP, syscall.IP_TTL
 }
 
-func probeMinimumReachableTTL(
+func (c *Core) probeMinimumReachableTTL(
 	ip, addr string, isIPv6 bool,
 	maxTTL, attempts int,
 	dialTimeout, cacheTTL time.Duration,
@@ -235,8 +235,8 @@ func probeMinimumReachableTTL(
 		}
 	}
 
-	if found != -1 && ttlCache != nil && cacheTTL != 0 && cacheTTL != unsetInt {
-		ttlCache.AddWithLifetime(ip, found, cacheTTL)
+	if found != -1 && c.ttl.cache != nil && cacheTTL != 0 && cacheTTL != unsetInt {
+		c.ttl.cache.AddWithLifetime(ip, found, cacheTTL)
 	}
 	return found, nil
 }

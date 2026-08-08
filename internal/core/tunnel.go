@@ -17,7 +17,7 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 )
 
-func handleTunnel(
+func (c *Core) handleTunnel(
 	p *Policy, dstConn, cliConn net.Conn, logger log.Logger,
 	oldTarget, target, originHost, originPort string,
 ) {
@@ -61,7 +61,7 @@ func handleTunnel(
 			if peekBytes[1] == tlsMajorVersion {
 				payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
 				var ok bool
-				if dstConn, _, ok = handleTLS(logger, payloadLen,
+				if dstConn, _, ok = c.handleTLS(logger, payloadLen,
 					p, originHost, oldTarget, target, originPort,
 					br, cliConn, dstConn, false); !ok {
 					return
@@ -212,7 +212,7 @@ func handleHTTP(
 	return dstConn, true
 }
 
-func handleTLS(logger log.Logger, recordLen int,
+func (c *Core) handleTLS(logger log.Logger, recordLen int,
 	p *Policy, originHost, oldTarget, target, originPort string,
 	br *bufio.Reader, cliConn, dstConn net.Conn,
 	fromSNIProxy bool) (_ net.Conn, _ string, _ bool) {
@@ -260,7 +260,7 @@ func handleTLS(logger log.Logger, recordLen int,
 		}
 		switch p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
-			if sniPolicy, exists := domainMatcher.Find(sniStr); exists {
+			if sniPolicy, exists := c.domainMatcher.Find(sniStr); exists {
 				switch sniPolicy.Mode {
 				case ModeBlock:
 					logger.Info("Connection blocked: ", sniStr)
@@ -277,7 +277,7 @@ func handleTLS(logger log.Logger, recordLen int,
 				logger.Info("SNI policy: ", p)
 			}
 		case SniffOverrideAlways, SniffOverridePolicyExists:
-			newDst, sniPolicy, failed, blocked, policyNotExists := genPolicy(
+			newDst, sniPolicy, failed, blocked, policyNotExists := c.genPolicy(
 				logger, sniStr, false, !fromSNIProxy && p.SniffOverrideMode == SniffOverridePolicyExists)
 			switch {
 			case failed:
@@ -355,7 +355,7 @@ func handleTLS(logger log.Logger, recordLen int,
 		logger.Info("Sent ClientHello in fragments")
 	case ModeTTLD:
 		isIPv6 := target[0] == '['
-		ttl, err := getFakeTTL(logger, p, target, isIPv6)
+		ttl, err := c.getFakeTTL(logger, p, target, isIPv6)
 		if err != nil {
 			logger.Error("Get fake TTL: ", err)
 			return

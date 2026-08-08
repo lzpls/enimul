@@ -22,7 +22,7 @@ var (
 
 const maxConnID = 0xFFFFF
 
-func SOCKS5Serve(cmdAddr, configAddr string) {
+func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -52,7 +52,7 @@ func SOCKS5Serve(cmdAddr, configAddr string) {
 			if connID > maxConnID {
 				connID = 1
 			}
-			go socks5Handler(conn, connID)
+			go c.socks5Handler(conn, connID)
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
@@ -77,7 +77,7 @@ func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
 	return true
 }
 
-func socks5Handler(cliConn net.Conn, id uint32) {
+func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 	logger := newLogger(F.ConnIDToHex5("S", id))
 	logger.Info("Connection from ", cliConn.RemoteAddr())
 
@@ -176,7 +176,7 @@ func socks5Handler(cliConn net.Conn, id uint32) {
 		return
 	}
 
-	dstHost, policy, failed, blocked, _ := genPolicy(logger, originHost, isIP, false)
+	dstHost, policy, failed, blocked, _ := c.genPolicy(logger, originHost, isIP, false)
 	if failed {
 		sendReply(logger, cliConn, socks5ReplyServerFailure)
 		return
@@ -216,5 +216,5 @@ func socks5Handler(cliConn net.Conn, id uint32) {
 	}
 
 	closeHere = false
-	handleTunnel(policy, dstConn, cliConn, logger, oldTarget, target, originHost, originPort)
+	c.handleTunnel(policy, dstConn, cliConn, logger, oldTarget, target, originHost, originPort)
 }

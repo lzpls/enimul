@@ -34,7 +34,7 @@ again:
 	goto again
 }
 
-func HTTPServe(cmdAddr, configAddr string) {
+func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -54,17 +54,17 @@ func HTTPServe(cmdAddr, configAddr string) {
 		return
 	}
 	logger.Info("HTTP proxy server started at ", ln.Addr())
-	if err := http.Serve(ln, http.HandlerFunc(httpHandler)); err != nil {
+	if err := http.Serve(ln, http.HandlerFunc(c.httpHandler)); err != nil {
 		logger.Error("HTTP serve: ", err)
 	}
 }
 
-func httpHandler(w http.ResponseWriter, req *http.Request) {
+func (c *Core) httpHandler(w http.ResponseWriter, req *http.Request) {
 	logger := newLogger(F.ConnIDToHex5("H", getHTTPConnID()))
 	logger.Info(req.RemoteAddr, " - \"", req.Method, " ", req.RequestURI, " ", req.Proto, "\"")
 
 	if req.Method == http.MethodConnect {
-		handleConnect(logger, w, req)
+		c.handleHTTPConnect(logger, w, req)
 		return
 	}
 
@@ -74,10 +74,10 @@ func httpHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	forwardHTTPRequest(logger, w, req)
+	c.forwardHTTPRequest(logger, w, req)
 }
 
-func handleConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) {
+func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) {
 	oldDest := req.Host
 	if oldDest == "" {
 		logger.Error("Empty host")
@@ -91,7 +91,7 @@ func handleConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	dstHost, policy, fail, blocked, _ := genPolicy(logger, originHost, false, false)
+	dstHost, policy, fail, blocked, _ := c.genPolicy(logger, originHost, false, false)
 	if fail {
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
@@ -157,10 +157,10 @@ func handleConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) 
 	}
 
 	closeHere = false
-	handleTunnel(policy, dstConn, cliConn, logger, oldDest, dest, originHost, originPort)
+	c.handleTunnel(policy, dstConn, cliConn, logger, oldDest, dest, originHost, originPort)
 }
 
-func forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *http.Request) {
+func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *http.Request) {
 	host := originReq.Host
 	if host == "" {
 		host = originReq.URL.Host
@@ -181,7 +181,7 @@ func forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *htt
 		}
 	}
 
-	dstHost, p, failed, blocked, _ := genPolicy(logger, originHost, false, false)
+	dstHost, p, failed, blocked, _ := c.genPolicy(logger, originHost, false, false)
 	if failed {
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
