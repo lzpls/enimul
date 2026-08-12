@@ -141,25 +141,25 @@ func (b *TriBool) UnmarshalJSON(data []byte) error {
 }
 
 type Byte struct {
-	b     byte
-	valid bool
+	b           byte
+	valid, zero bool
 }
 
 func (b Byte) IsUnset() bool { return !b.valid }
 
+func (b Byte) IsZero() bool { return b.IsUnset() || b.zero }
+
 func (b Byte) Byte() byte { return b.b }
 
-func (b *Byte) Set(x byte) {
-	b.valid = true
-	b.b = x
-}
-
 func (b *Byte) UnmarshalJSON(data []byte) error {
-	var x byte
-	if err := json.Unmarshal(data, &x); err != nil {
+	b.valid = true
+	if string(data) == "false" {
+		b.zero = true
+		return nil
+	}
+	if err := json.Unmarshal(data, &b.b); err != nil {
 		return err
 	}
-	b.Set(x)
 	return nil
 }
 
@@ -369,7 +369,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (p Policy) String() string {
+func (p *Policy) String() string {
 	fields := make([]string, 0, 13)
 	if p.ConnectTimeout != 0 {
 		fields = append(fields, "timeout="+p.ConnectTimeout.String())
@@ -394,7 +394,7 @@ func (p Policy) String() string {
 	fields = append(fields, p.Mode.String())
 	switch p.Mode {
 	case ModeTLSRF:
-		if !p.MinorVer.IsUnset() {
+		if !p.MinorVer.IsZero() {
 			fields = append(fields, "minor_ver="+F.Uint(p.MinorVer.Byte()))
 		}
 		if p.NumRecords != unsetInt && p.NumRecords != 1 {
@@ -412,7 +412,6 @@ func (p Policy) String() string {
 		if p.OOBEx.IsTrue() {
 			fields = append(fields, "oob_ex")
 		}
-
 	case ModeTTLD:
 		if p.FakeTTL == 0 || p.FakeTTL == unsetInt {
 			fields = append(fields, "auto_fake_ttl")

@@ -22,7 +22,7 @@ func sendRecords(conn net.Conn, clientHello []byte,
 	offset, length, records, segments int, minorVersion Byte,
 	oob, oobex, waitForAckEnabled bool,
 	interval time.Duration) error {
-	if !minorVersion.IsUnset() {
+	if !minorVersion.IsZero() {
 		clientHello[2] = minorVersion.Byte()
 	}
 
