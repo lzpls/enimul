@@ -11,32 +11,28 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 )
 
-// TCP-only.
 var (
-	globalIPv4Dialer atomic.Pointer[net.Dialer]
-	globalIPv6Dialer atomic.Pointer[net.Dialer]
+	localIPv4 atomic.Pointer[net.TCPAddr]
+	localIPv6 atomic.Pointer[net.TCPAddr]
 )
 
 // Note: the returned *net.Dialer is a shallow copy – you may change Timeout, Control,
 // etc., but do NOT modify Resolver (they share the global instances).
 func NewDialer(isIPv6 bool) *net.Dialer {
-	var d net.Dialer
+	var addr *net.TCPAddr
 	if isIPv6 {
-		d = *globalIPv6Dialer.Load()
+		addr = localIPv6.Load()
 	} else {
-		d = *globalIPv4Dialer.Load()
+		addr = localIPv4.Load()
 	}
-	return &d
+	if addr == nil {
+		return new(net.Dialer)
+	}
+	return &net.Dialer{LocalAddr: addr}
 }
 
 func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	var dialer *net.Dialer
-	if address[0] == '[' {
-		dialer = globalIPv6Dialer.Load()
-	} else {
-		dialer = globalIPv4Dialer.Load()
-	}
-	return dialer.DialContext(ctx, network, address)
+	return NewDialer(address[0] == '[').DialContext(ctx, network, address)
 }
 
 func DialTimeout(ctx context.Context, network, address string, timeout time.Duration) (net.Conn, error) {
@@ -49,7 +45,7 @@ func DialTCPTimeout(address string, timeout time.Duration) (net.Conn, error) {
 	return DialTimeout(context.Background(), "tcp", address, timeout)
 }
 
-type monitor = func() (net.IP, net.IP, string, error)
+type monitor = func() (ipv4 net.IP, ipv6 net.IP, zone string, err error)
 
 func laddrMonitor(interval time.Duration, fn monitor) {
 	for range time.Tick(interval) {
@@ -60,11 +56,11 @@ func laddrMonitor(interval time.Duration, fn monitor) {
 		}
 		msg := []any{"Local address updated:"}
 		if ipv4 != nil {
-			globalIPv4Dialer.Store(&net.Dialer{LocalAddr: &net.TCPAddr{IP: ipv4}})
+			localIPv4.Store(&net.TCPAddr{IP: ipv4})
 			msg = append(msg, " ipv4=", ipv4)
 		}
 		if ipv6 != nil {
-			globalIPv6Dialer.Store(&net.Dialer{LocalAddr: &net.TCPAddr{IP: ipv6, Zone: zone}})
+			localIPv6.Store(&net.TCPAddr{IP: ipv6, Zone: zone})
 			msg = append(msg, " ipv6=", ipv6)
 		}
 		if zone != "" {
@@ -165,15 +161,12 @@ func SetLocalAddr(o BindingOption) error {
 	case MethodCustom:
 		ipv4, ipv6, zone = o.CustomIPv4, o.CustomIPv6, o.CustomZone
 	}
-	ipv4Dialer, ipv6Dialer := new(net.Dialer), new(net.Dialer)
 	if ipv4 != nil {
-		ipv4Dialer.LocalAddr = &net.TCPAddr{IP: ipv4}
+		localIPv4.Store(&net.TCPAddr{IP: ipv4})
 	}
-	globalIPv4Dialer.Store(ipv4Dialer)
 	if ipv6 != nil {
-		ipv6Dialer.LocalAddr = &net.TCPAddr{IP: ipv6, Zone: zone}
+		localIPv6.Store(&net.TCPAddr{IP: ipv6, Zone: zone})
 	}
-	globalIPv6Dialer.Store(ipv6Dialer)
 	if monitor != nil {
 		go laddrMonitor(o.UpdateInterval, monitor)
 	}
