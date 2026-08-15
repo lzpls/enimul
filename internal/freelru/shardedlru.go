@@ -17,7 +17,7 @@ type ShardedLRU[K comparable, V any] struct {
 	mus    []sync.Mutex
 	hash   HashKeyCallback[K]
 	shards uint32
-	mask   uint32
+	mask   uint64
 }
 
 //var _ Cache[int, int] = (*ShardedLRU[int, int])(nil)
@@ -116,7 +116,7 @@ func NewShardedWithSize[K comparable, V any](shards, capacity, size uint32,
 		mus:    make([]sync.Mutex, shards),
 		hash:   hash,
 		shards: shards,
-		mask:   shards - 1,
+		mask:   uint64(shards) - 1,
 	}, nil
 }
 
@@ -136,7 +136,7 @@ func (lru *ShardedLRU[K, V]) Len() int {
 func (lru *ShardedLRU[K, V]) AddWithLifetime(key K, value V,
 	lifetime time.Duration) (evicted bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	evicted = lru.lrus[shard].addWithLifetime(hash, key, value, lifetime)
@@ -150,7 +150,7 @@ func (lru *ShardedLRU[K, V]) AddWithLifetime(key K, value V,
 // Returns true if an eviction occurred.
 func (lru *ShardedLRU[K, V]) Add(key K, value V) (evicted bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	evicted = lru.lrus[shard].add(hash, key, value)
@@ -165,7 +165,7 @@ func (lru *ShardedLRU[K, V]) Add(key K, value V) (evicted bool) {
 // and the return value indicates that the key was not found.
 func (lru *ShardedLRU[K, V]) Get(key K) (value V, ok bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	value, ok = lru.lrus[shard].get(hash, key)
@@ -179,7 +179,7 @@ func (lru *ShardedLRU[K, V]) Get(key K) (value V, ok bool) {
 // The lifetime of the found cache item is refreshed, even if it was already expired.
 func (lru *ShardedLRU[K, V]) GetAndRefresh(key K, lifetime time.Duration) (value V, ok bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	value, ok = lru.lrus[shard].getAndRefresh(hash, key, lifetime)
@@ -192,7 +192,7 @@ func (lru *ShardedLRU[K, V]) GetAndRefresh(key K, lifetime time.Duration) (value
 // If the found entry is already expired, the evict function is called.
 func (lru *ShardedLRU[K, V]) Peek(key K) (value V, ok bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	value, ok = lru.lrus[shard].peek(hash, key)
@@ -205,7 +205,7 @@ func (lru *ShardedLRU[K, V]) Peek(key K) (value V, ok bool) {
 // If the found entry is already expired, the evict function is called.
 func (lru *ShardedLRU[K, V]) Contains(key K) (ok bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	ok = lru.lrus[shard].contains(hash, key)
@@ -219,7 +219,7 @@ func (lru *ShardedLRU[K, V]) Contains(key K) (ok bool) {
 // The evict function is called for the removed entry.
 func (lru *ShardedLRU[K, V]) Remove(key K) (removed bool) {
 	hash := lru.hash(key)
-	shard := (hash >> 16) & lru.mask
+	shard := (hash >> 32) & lru.mask
 
 	lru.mus[shard].Lock()
 	removed = lru.lrus[shard].remove(hash, key)

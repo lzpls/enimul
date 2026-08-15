@@ -15,9 +15,10 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/singleflight"
-	"golang.org/x/net/proxy"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/miekg/dns"
+	"golang.org/x/net/proxy"
 )
 
 type DNSClient interface {
@@ -151,7 +152,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			conf.CacheCapacity = 4096
 		}
 		var err error
-		c.dns.cache, err = freelru.NewSharded[string, string](conf.CacheCapacity, hashStringXXHASH)
+		c.dns.cache, err = freelru.NewSharded[string, string](conf.CacheCapacity, xxhash.Sum64String)
 		if err != nil {
 			return E.WithStr("init DNS cache", err)
 		}

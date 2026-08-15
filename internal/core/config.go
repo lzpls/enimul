@@ -9,8 +9,6 @@ import (
 	"github.com/lzpls/enimul/internal/dial"
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/orderedmap"
-
-	"github.com/cespare/xxhash/v2"
 )
 
 type Config struct {
@@ -108,11 +106,6 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 	}
 
 	return conf.Socks5Addr, conf.HttpAddr, conf.SNIProxyAddr, nil
-}
-
-// for freelru
-func hashStringXXHASH(s string) uint32 {
-	return uint32(xxhash.Sum64String(s))
 }
 
 func expandPattern(s string) []string {

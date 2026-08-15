@@ -15,6 +15,8 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/platform"
 	"github.com/lzpls/enimul/internal/singleflight"
+
+	"github.com/cespare/xxhash/v2"
 )
 
 type ttlProbingFields = struct {
@@ -42,7 +44,7 @@ func (c *Core) setTTLProbing(conf TTLProbingConfig) error {
 			conf.CacheCapacity = 1024
 		}
 		var err error
-		c.ttl.cache, err = freelru.NewSharded[string, int](conf.CacheCapacity, hashStringXXHASH)
+		c.ttl.cache, err = freelru.NewSharded[string, int](conf.CacheCapacity, xxhash.Sum64String)
 		if err != nil {
 			return E.WithStr("init TTL cache", err)
 		}
