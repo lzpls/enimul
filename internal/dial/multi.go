@@ -147,7 +147,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, f
 	port := uint16(p)
 
 	type dialResult struct {
-		conn net.Conn
+		conn *net.TCPConn
 		err  error
 	}
 	resultCh := make(chan dialResult, len(addrs))
@@ -181,11 +181,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, f
 					addr = netip.AddrPortFrom(addr.Addr(), port)
 				}
 				conn, err := dialer.DialTCP(dialCtx, "tcp", netip.AddrPort{}, addr)
-				if err != nil {
-					resultCh <- dialResult{nil, err}
-				} else {
-					resultCh <- dialResult{conn, nil}
-				}
+				resultCh <- dialResult{conn, err}
 			})
 		}
 	})
@@ -193,6 +189,11 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, f
 	go func() {
 		wg.Wait()
 		close(resultCh)
+		for r := range resultCh {
+			if r.conn != nil {
+				r.conn.Close()
+			}
+		}
 	}()
 
 	var errs []error
