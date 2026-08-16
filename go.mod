@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/miekg/dns v1.1.72
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	golang.org/x/net v0.55.0
 	golang.org/x/sys v0.45.0
 )
