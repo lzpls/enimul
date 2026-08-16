@@ -1,14 +1,18 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
 
 	"github.com/lzpls/enimul/internal/addrtrie"
 	"github.com/lzpls/enimul/internal/dial"
+	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/orderedmap"
+
+	"github.com/tailscale/hujson"
 )
 
 type Config struct {
@@ -27,32 +31,44 @@ type Config struct {
 	IpPolicies       orderedmap.Map[Policy]   `json:"ip_policies"`
 }
 
-func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
-	anErr := func(err error) (string, string, string, error) {
-		return "", "", "", err
-	}
-	file, err := os.Open(filePath)
+func (c *Config) UnmarshalJSON(data []byte) error {
+	b, err := hujson.Standardize(data)
 	if err != nil {
-		return anErr(err)
+		return err
 	}
-	decoder := json.NewDecoder(file)
+	type alias Config
+	return json.Unmarshal(b, (*alias)(c))
+}
+
+func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
+	anErr := func(text string, err error) (string, string, string, error) {
+		return "", "", "", E.WithStr(text, err)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return anErr("read config", err)
+	}
+	data, err = hujson.Standardize(data)
+	if err != nil {
+		return anErr("standardize config", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	if disallowUnknownFields {
 		decoder.DisallowUnknownFields()
 	}
 	var conf Config
-	err = decoder.Decode(&conf)
-	file.Close()
-	if err != nil {
-		return anErr(err)
+	if err = decoder.Decode(&conf); err != nil {
+		return anErr("decode config", err)
 	}
 
 	if err := setLogOutput(conf.LogOutput); err != nil {
-		return anErr(err)
+		return anErr("set log output", err)
 	}
 	logLevel = conf.LogLevel
 
 	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
-		return anErr(err)
+		return anErr("set local address", err)
 	}
 	dial.SetLogger(newLogger("[dial]"))
 
@@ -98,11 +114,11 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 	}
 
 	if err = c.setDNS(conf.DNSConfig); err != nil {
-		return anErr(err)
+		return anErr("init dns", err)
 	}
 
 	if err = c.setTTLProbing(conf.TTLProbingConfig); err != nil {
-		return anErr(err)
+		return anErr("init ttl probing", err)
 	}
 
 	return conf.Socks5Addr, conf.HttpAddr, conf.SNIProxyAddr, nil
