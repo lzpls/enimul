@@ -31,18 +31,21 @@ func (d *Dst) String() string {
 	if d == nil {
 		return ""
 	}
-	if d.multi != nil {
-		var buf strings.Builder
-		buf.WriteByte('[')
-		buf.WriteString(addrportToString(d.multi[0]))
-		for _, addr := range d.multi[1:] {
-			buf.WriteByte(' ')
-			buf.WriteString(addrportToString(addr))
-		}
-		buf.WriteByte(']')
-		return buf.String()
+	if d.multi == nil {
+		return d.single
 	}
-	return d.single
+	if len(d.multi) == 1 {
+		return d.multi[0].String()
+	}
+	var buf strings.Builder
+	buf.WriteByte('[')
+	buf.WriteString(addrportToString(d.multi[0]))
+	for _, addr := range d.multi[1:] {
+		buf.WriteByte(' ')
+		buf.WriteString(addrportToString(addr))
+	}
+	buf.WriteByte(']')
+	return buf.String()
 }
 
 func NewSingleDst(s string) *Dst { return &Dst{single: s, singleValid: true} }

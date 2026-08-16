@@ -12,14 +12,14 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/singleflight"
-	"golang.org/x/net/proxy"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/miekg/dns"
+	"golang.org/x/net/proxy"
 )
 
 type DNSClient interface {
