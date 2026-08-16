@@ -14,6 +14,8 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 )
 
+const defaultDialDelay = 300 * time.Millisecond
+
 type Dst struct {
 	single      string
 	singleValid bool
@@ -119,24 +121,24 @@ func (d *Dst) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func DialContextMulti(ctx context.Context, network string, dst *Dst, port string) (net.Conn, error) {
+func DialContextMulti(ctx context.Context, network string, dst *Dst, port string, dialDelay time.Duration) (net.Conn, error) {
 	if dst.IsMulti() {
 		return dialParallel(ctx, dst.multi, port, 300*time.Millisecond)
 	}
 	return NewDialer(dst.single[0] == '[').DialContext(ctx, network, net.JoinHostPort(dst.single, port))
 }
 
-func DialTimeoutMulti(ctx context.Context, network string, dst *Dst, port string, timeout time.Duration) (net.Conn, error) {
+func DialTimeoutMulti(ctx context.Context, network string, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return DialContextMulti(timeoutCtx, network, dst, port)
+	return DialContextMulti(timeoutCtx, network, dst, port, dialDelay)
 }
 
-func DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration) (net.Conn, error) {
-	return DialTimeoutMulti(context.Background(), "tcp", dst, port, timeout)
+func DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
+	return DialTimeoutMulti(context.Background(), "tcp", dst, port, timeout, dialDelay)
 }
 
-func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, fallbackDelay time.Duration) (net.Conn, error) {
+func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (net.Conn, error) {
 	if len(addrs) == 0 {
 		return nil, E.New("no addresses to dial")
 	}
@@ -145,6 +147,9 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, f
 		return nil, fmt.Errorf("invalid port %q: %w", portStr, err)
 	}
 	port := uint16(p)
+	if dialDelay <= 0 {
+		dialDelay = defaultDialDelay
+	}
 
 	type dialResult struct {
 		conn *net.TCPConn
@@ -161,7 +166,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, f
 	wg.Go(func() {
 		for i, addr := range addrs {
 			if i > 0 {
-				timer := time.NewTimer(fallbackDelay)
+				timer := time.NewTimer(dialDelay)
 				select {
 				case <-timer.C:
 				case <-dialCtx.Done():

@@ -169,6 +169,7 @@ type Policy struct {
 	DNSMode           DNSMode
 	DNSCacheTTL       time.Duration
 	ConnectTimeout    time.Duration
+	DialDelay         time.Duration
 	Host              dial.Dst
 	MapTo             dial.Dst
 	Port              int
@@ -197,6 +198,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		SniffOverrideMode SniffOverrideMode `json:"sniff_override"`
 		ReplyFirst        TriBool           `json:"reply_first"`
 		ConnectTimeout    *string           `json:"connect_timeout"`
+		DialDelay         *string           `json:"dial_delay"`
 		Host              dial.Dst          `json:"host"`
 		MapTo             dial.Dst          `json:"map_to"`
 		Port              *uint16           `json:"port"`
@@ -291,6 +293,18 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		}
 		if p.ConnectTimeout <= 0 {
 			return fmt.Errorf("connect_timeout %s: must be greater than 0", *tmp.ConnectTimeout)
+		}
+	}
+
+	if tmp.DialDelay == nil {
+		p.DialDelay = unsetInt
+	} else {
+		p.DialDelay, err = time.ParseDuration(*tmp.DialDelay)
+		if err != nil {
+			return fmt.Errorf("parse dial_delay %s: %w", *tmp.DialDelay, err)
+		}
+		if p.DialDelay <= 0 {
+			return fmt.Errorf("dial_delay %s: must be greater than 0", *tmp.DialDelay)
 		}
 	}
 
@@ -441,6 +455,9 @@ func mergePolicies(policies ...*Policy) *Policy {
 		}
 		if merged.ConnectTimeout == unsetInt && p.ConnectTimeout != unsetInt {
 			merged.ConnectTimeout = p.ConnectTimeout
+		}
+		if merged.DialDelay == unsetInt && p.DialDelay != unsetInt {
+			merged.DialDelay = p.DialDelay
 		}
 		if merged.Host.IsZero() && !p.Host.IsZero() {
 			merged.Host = p.Host

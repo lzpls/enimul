@@ -138,7 +138,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 	}()
 
 	if policy.ReplyFirst != BoolTrue {
-		dstConn, err = dial.DialTCPTimeoutMulti(dstHost, dstPort, policy.ConnectTimeout)
+		dstConn, err = dial.DialTCPTimeoutMulti(dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldDest, " failed: ", err)
 			_, err = cliConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
@@ -237,7 +237,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 
 	if p.ConnectTimeout > 0 {
 		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return dial.DialTimeoutMulti(ctx, network, dstHost, dstPort, p.ConnectTimeout)
+			return dial.DialTimeoutMulti(ctx, network, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
 		}
 	}
 

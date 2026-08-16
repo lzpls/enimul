@@ -205,7 +205,7 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 
 	port := F.Uint(dstPort)
 	if policy.ReplyFirst != BoolTrue {
-		dstConn, err = dial.DialTCPTimeoutMulti(dstHost, port, policy.ConnectTimeout)
+		dstConn, err = dial.DialTCPTimeoutMulti(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)
