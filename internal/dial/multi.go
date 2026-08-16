@@ -35,7 +35,7 @@ func (d *Dst) String() string {
 		return d.single
 	}
 	if len(d.multi) == 1 {
-		return d.multi[0].String()
+		return addrportToString(d.multi[0])
 	}
 	var buf strings.Builder
 	buf.WriteByte('[')
