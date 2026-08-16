@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"net/url"
+	_ "net/url"
 	"strings"
 	"time"
 
@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	unsetInt    = -1
-	unsetString = "\x00"
+	unsetInt = -1
+	//unsetString = "\x00"
 )
 
 type SniffOverrideMode uint8
@@ -169,8 +169,8 @@ type Policy struct {
 	DNSMode           DNSMode
 	DNSCacheTTL       time.Duration
 	ConnectTimeout    time.Duration
-	Host              string
-	MapTo             string
+	Host              dial.Dst
+	MapTo             dial.Dst
 	Port              int
 	HttpStatus        int
 	TLS13Only         TriBool
@@ -197,8 +197,8 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 		SniffOverrideMode SniffOverrideMode `json:"sniff_override"`
 		ReplyFirst        TriBool           `json:"reply_first"`
 		ConnectTimeout    *string           `json:"connect_timeout"`
-		Host              *string           `json:"host"`
-		MapTo             *string           `json:"map_to"`
+		Host              dial.Dst          `json:"host"`
+		MapTo             dial.Dst          `json:"map_to"`
 		Port              *uint16           `json:"port"`
 		DNSMode           DNSMode           `json:"dns_mode"`
 		DNSCacheTTL       *string           `json:"dns_cache_ttl"`
@@ -232,22 +232,8 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	p.OOBEx = tmp.OOBEx
 	p.MinorVer = tmp.MinorVer
 	p.WaitForAck = tmp.WaitForAck
-
-	if tmp.Host == nil {
-		p.Host = unsetString
-	} else if *tmp.Host == unsetString {
-		return E.New("host cannot be `\\x00`")
-	} else {
-		p.Host = *tmp.Host
-	}
-
-	if tmp.MapTo == nil {
-		p.MapTo = unsetString
-	} else if *tmp.MapTo == unsetString {
-		return E.New("map_to cannot be `\\x00`")
-	} else {
-		p.MapTo = *tmp.MapTo
-	}
+	p.Host = tmp.Host
+	p.MapTo = tmp.MapTo
 
 	if tmp.Port == nil {
 		p.Port = unsetInt
@@ -377,7 +363,7 @@ func (p *Policy) String() string {
 	if p.Port != unsetInt && p.Port != 0 {
 		fields = append(fields, "port="+F.Int(p.Port))
 	}
-	if p.Host == "" || p.Host == unsetString {
+	if p.Host.IsZero() {
 		if p.DNSMode != DNSModeUnset {
 			fields = append(fields, p.DNSMode.String())
 		}
@@ -437,8 +423,6 @@ func (p *Policy) String() string {
 
 func mergePolicies(policies ...*Policy) *Policy {
 	merged := Policy{
-		Host:           unsetString,
-		MapTo:          unsetString,
 		Port:           unsetInt,
 		HttpStatus:     unsetInt,
 		SendInterval:   unsetInt,
@@ -458,10 +442,10 @@ func mergePolicies(policies ...*Policy) *Policy {
 		if merged.ConnectTimeout == unsetInt && p.ConnectTimeout != unsetInt {
 			merged.ConnectTimeout = p.ConnectTimeout
 		}
-		if merged.Host == unsetString && p.Host != unsetString {
+		if merged.Host.IsZero() && !p.Host.IsZero() {
 			merged.Host = p.Host
 		}
-		if merged.MapTo == unsetString && p.MapTo != unsetString {
+		if merged.MapTo.IsZero() && !p.MapTo.IsZero() {
 			merged.MapTo = p.MapTo
 		}
 		if merged.Port == unsetInt && p.Port != unsetInt {
@@ -576,14 +560,13 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 	case ModeDirect, ModeRaw:
 		return c.Conn.Write(b)
 	case ModeTTLD:
-		raddr := c.RemoteAddr().String()
-		ipv6 := raddr[0] == '['
-		ttl, err := c.core.getFakeTTL(nil, c.policy, raddr, ipv6)
+		raddr := c.RemoteAddr().(*net.TCPAddr).AddrPort()
+		ttl, err := c.core.getFakeTTL(nil, c.policy, raddr)
 		if err != nil {
 			return 0, E.WithStr("get fake ttl", err)
 		}
 		if err = desyncSend(
-			c.Conn, ipv6, b,
+			c.Conn, b,
 			sniStart, sniLen, ttl, c.policy.FakeSleep,
 		); err != nil {
 			return 0, E.WithStr("ttl desync", err)
@@ -603,86 +586,29 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 }
 
 func (c *Core) genDoHDialFunc(dnsAddr string) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
-	parsedURL, err := url.Parse(dnsAddr)
-	if err != nil {
-		return nil, E.WithStr("invalid DoH URL", err)
-	}
-	host := parsedURL.Hostname()
-	policy := new(Policy)
-	if net.ParseIP(host) != nil {
-		var ipPolicy *Policy
-		host, ipPolicy, err = c.ipRedirect(nil, host)
-		if ipPolicy == nil {
-			policy = &c.defaultPolicy
-		} else {
-			policy = mergePolicies(ipPolicy, &c.defaultPolicy)
-		}
-		if err != nil {
-			return nil, E.WithStr("ip redirect", err)
-		}
-	} else {
-		domainPolicy, foundDomainPolicy := c.domainMatcher.Find(host)
-		if foundDomainPolicy {
-			policy = mergePolicies(domainPolicy, &c.defaultPolicy)
-		} else {
-			policy = &c.defaultPolicy
-		}
-		policyHost := policy.Host
-		if strings.HasPrefix(policyHost, noRedirectPrefix) {
-			policyHost = policyHost[1:]
-		}
-		var selectedHost string
-		if policyHost == "" || policyHost == unsetString {
-			var foundInHosts bool
-			selectedHost, foundInHosts = c.hostsMatcher.Find(host)
-			if foundInHosts && strings.HasPrefix(selectedHost, noRedirectPrefix) {
-				selectedHost = selectedHost[1:]
-			}
-		} else {
-			selectedHost = policyHost
-		}
-		switch {
-		case selectedHost == "self":
-		case strings.HasPrefix(selectedHost, ipPoolTagPrefix):
-			if host, err = c.getFromIPPool(selectedHost[1:]); err != nil {
-				return nil, err
-			}
-		case strings.HasPrefix(selectedHost, resolvePrefix):
-		default:
-			host = selectedHost
-		}
-	}
-	switch policy.Mode {
-	case ModeBlock, ModeTLSAlert:
-		return nil, E.New("the mode of the DoH cannot be `block`")
-	}
-	port := parsedURL.Port()
-	if port == "" {
-		port = "443"
-	}
-	if policy.Port != unsetInt {
-		port = F.Int(policy.Port)
-	}
-	addr := net.JoinHostPort(host, port)
-	return func(ctx context.Context, network, _ string) (net.Conn, error) {
-		conn, err := dial.DialTimeout(ctx, network, addr, policy.ConnectTimeout)
-		if err == nil {
-			return &policyConn{Conn: conn, core: c, policy: policy}, nil
-		}
-		return nil, err
-	}, nil
+	return nil, E.New("DoH dial function is not implemented yet, please use `doh_socks5_addr`")
 }
 
-func (c *Core) genPolicy(logger log.Logger, originHost string, isIP, returnWhenDomainNotFound bool) (dstHost string, p *Policy, failed, blocked, domainNotFound bool) {
-	var err error
+func stripNoRedirectPrefix(s string) (string, bool) {
+	if strings.HasPrefix(s, noRedirectPrefix) {
+		return s[1:], true
+	}
+	return s, false
+}
 
+func (c *Core) genPolicy(
+	logger log.Logger,
+	originHost string,
+	isIP, returnWhenDomainNotFound bool,
+) (host *dial.Dst, p *Policy, failed, blocked, domainNotFound bool) {
 	isIP = isIP || net.ParseIP(originHost) != nil
 	if isIP {
 		var ipPolicy *Policy
-		dstHost, ipPolicy, err = c.ipRedirect(logger, originHost)
+		var err error
+		host, ipPolicy, err = c.ipRedirect(logger, originHost)
 		if err != nil {
 			logger.Error("IP redirect: ", err)
-			return "", nil, true, false, false
+			return nil, nil, true, false, false
 		}
 		if ipPolicy == nil {
 			p = &c.defaultPolicy
@@ -690,144 +616,172 @@ func (c *Core) genPolicy(logger log.Logger, originHost string, isIP, returnWhenD
 			p = mergePolicies(ipPolicy, &c.defaultPolicy)
 		}
 		if p.Mode == ModeBlock {
-			return "", nil, false, true, false
+			return nil, nil, false, true, false
 		}
 		return
 	}
 
-	domainPolicy, foundDomainPolicy := c.domainMatcher.Find(originHost)
-	if foundDomainPolicy {
+	domainPolicy, hasDomainPolicy := c.domainMatcher.Find(originHost)
+	if hasDomainPolicy {
 		if domainPolicy.Mode == ModeBlock {
-			return "", nil, false, true, false
+			return nil, nil, false, true, false
 		}
 		p = mergePolicies(domainPolicy, &c.defaultPolicy)
 	} else {
 		p = &c.defaultPolicy
 	}
 
-	noRedirect := strings.HasPrefix(p.Host, noRedirectPrefix)
-	policyHost := p.Host
-	if noRedirect {
-		policyHost = policyHost[1:]
-	}
-	var selectedHost string
-	var foundInHosts bool
-	if policyHost == "" || policyHost == unsetString {
-		selectedHost, foundInHosts = c.hostsMatcher.Find(originHost)
-		noRedirect = strings.HasPrefix(selectedHost, noRedirectPrefix)
-		if noRedirect {
-			selectedHost = selectedHost[1:]
-		}
-		switch selectedHost {
-		case "", unsetString:
-			if returnWhenDomainNotFound {
-				return "", nil, false, false, true
-			}
-			var cached bool
-			dstHost, cached, err = c.dnsResolve(originHost, p.DNSMode, p.DNSCacheTTL)
-			if err != nil {
-				logger.Error("Resolve ", originHost, ": ", err)
-				return "", nil, true, false, false
-			}
-			if cached {
-				logger.Info("DNS (cached): ", originHost, " -> ", dstHost)
-			} else {
-				logger.Info("DNS: ", originHost, " -> ", dstHost)
-			}
-		}
-	} else {
-		selectedHost = policyHost
+	host = &p.Host
+	if host.IsMulti() {
+		return
 	}
 
-	if dstHost == "" {
-		if strings.HasPrefix(selectedHost, resolvePrefix) {
-			selectedHost = selectedHost[1:]
-			var cached bool
-			dstHost, cached, err = c.dnsResolve(selectedHost, p.DNSMode, p.DNSCacheTTL)
-			if err != nil {
-				logger.Error("Resolve ", selectedHost, ": ", err)
-				return "", nil, true, false, false
+	single, noRedirect := stripNoRedirectPrefix(host.Single())
+	fromHosts := false
+	if host.IsZero() || single == "" {
+		if hostFromHosts, ok := c.hostsMatcher.Find(originHost); ok {
+			if hostFromHosts.IsMulti() {
+				host = hostFromHosts
+				return
 			}
-			var logPrefix string
-			if cached {
-				logPrefix = "DNS (cached): "
-			} else {
-				logPrefix = "DNS: "
-			}
-			logger.Info(logPrefix, originHost, " -> ", selectedHost, " -> ", dstHost)
-		} else {
-			var logPrefix string
-			if foundInHosts {
-				logPrefix = "Host (from hosts): "
-			} else {
-				logPrefix = "Host: "
-			}
-			switch {
-			case selectedHost == "self":
-				dstHost = originHost
-				logger.Info(logPrefix, originHost)
-			case strings.HasPrefix(selectedHost, ipPoolTagPrefix):
-				if dstHost, err = c.getFromIPPool(selectedHost[1:]); err != nil {
-					logger.Error(err)
-					return "", nil, true, false, false
-				}
-				logger.Info(logPrefix, selectedHost, " -> ", dstHost)
-			default:
-				dstHost = selectedHost
-				logger.Info(logPrefix, dstHost)
-			}
+			fromHosts = true
+			host = hostFromHosts
+			single, noRedirect = stripNoRedirectPrefix(host.Single())
+		} else if returnWhenDomainNotFound {
+			return nil, nil, false, false, true
 		}
 	}
 
-	if !noRedirect {
-		var ipPolicy *Policy
-		dstHost, ipPolicy, err = c.ipRedirect(logger, dstHost)
+	if single == "self" {
+		host = dial.NewSingleDst(originHost)
+		return
+	}
+
+	fromDNS := false
+	if single == "" {
+		resolved, cached, err := c.dnsResolve(originHost, p.DNSMode, p.DNSCacheTTL)
 		if err != nil {
-			logger.Info("IP redirect: ", err)
-			return "", nil, true, false, false
+			logger.Error("Resolve ", originHost, " failed: ", err)
+			return nil, nil, true, false, false
 		}
-		if ipPolicy != nil {
-			if foundDomainPolicy {
-				p = mergePolicies(domainPolicy, ipPolicy, &c.defaultPolicy)
-			} else {
-				p = mergePolicies(ipPolicy, &c.defaultPolicy)
+		prefix := "DNS: "
+		if cached {
+			prefix = "DNS (cached): "
+		}
+		logger.Info(prefix, originHost, " -> ", resolved)
+		if resolved.IsMulti() {
+			host = resolved
+			return
+		}
+		single = resolved.Single()
+		fromDNS = true
+	}
+
+	if strings.HasPrefix(single, resolvePrefix) {
+		resolved, cached, err := c.dnsResolve(single[1:], p.DNSMode, p.DNSCacheTTL)
+		if err != nil {
+			logger.Error("Resolve ", originHost, " failed: ", err)
+			return nil, nil, true, false, false
+		}
+		prefix := "DNS: "
+		if cached {
+			prefix = "DNS (cached): "
+		}
+		logger.Info(prefix, originHost, " -> ", resolved)
+		if resolved.IsMulti() {
+			host = resolved
+			return
+		}
+		single = resolved.Single()
+		fromDNS = true
+	}
+
+	if !fromDNS {
+		logPrefix := "Host: "
+		if fromHosts {
+			logPrefix = "Host (from hosts): "
+		}
+		if strings.HasPrefix(single, ipPoolTagPrefix) {
+			cur, err := c.getFromIPPool(single[1:])
+			if err != nil {
+				logger.Error(err)
+				return nil, nil, true, false, false
 			}
-			if p.Mode == ModeBlock {
-				return "", nil, false, true, false
+			logger.Info(logPrefix, single, " -> ", cur)
+			if cur.IsMulti() {
+				host = cur
+				return
 			}
+			single = cur.Single()
+		} else {
+			logger.Info(logPrefix, single)
 		}
 	}
 
+	if noRedirect {
+		host = dial.NewSingleDst(single)
+		return
+	}
+
+	mapped, ipPolicy, err := c.ipRedirect(logger, single)
+	if err != nil {
+		logger.Error("IP redirect: ", err)
+		return nil, nil, true, false, false
+	}
+	host = mapped
+	if ipPolicy == nil {
+		return
+	}
+	if hasDomainPolicy {
+		p = mergePolicies(domainPolicy, ipPolicy, &c.defaultPolicy)
+	} else {
+		p = mergePolicies(ipPolicy, &c.defaultPolicy)
+	}
+	if p.Mode == ModeBlock {
+		return nil, nil, false, true, false
+	}
 	return
 }
 
-func (c *Core) ipRedirect(logger log.Logger, host string) (string, *Policy, error) {
+func (c *Core) ipRedirect(logger log.Logger, host string) (*dial.Dst, *Policy, error) {
 	ip, err := netip.ParseAddr(host)
 	if err != nil {
-		return host, nil, nil
+		return dial.NewSingleDst(host), nil, nil
 	}
 	policy, exists := c.getIPPolicy(ip)
 	if !exists {
-		return host, nil, nil
+		return dial.NewSingleDst(host), nil, nil
 	}
-	if policy.MapTo == "" || policy.MapTo == unsetString {
-		return host, policy, nil
+	if policy.MapTo.IsZero() {
+		return dial.NewSingleDst(host), policy, nil
 	}
-	mapTo := policy.MapTo
+	if policy.MapTo.IsMulti() {
+		return &policy.MapTo, policy, nil
+	}
+	mapTo := policy.MapTo.Single()
+	if mapTo == "" {
+		return dial.NewSingleDst(host), policy, nil
+	}
 	if strings.HasPrefix(mapTo, ipPoolTagPrefix) {
-		if mapTo, err = c.getFromIPPool(mapTo[1:]); err != nil {
-			return "", nil, err
-		}
-	} else if strings.LastIndexByte(policy.MapTo, '/') != -1 {
-		mapTo, err = transformIP(ip, policy.MapTo)
+		cur, err := c.getFromIPPool(mapTo[1:])
 		if err != nil {
-			return "", nil, err
+			return nil, nil, err
+		}
+		if logger != nil {
+			logger.Info("Redirect: ", host, " -> ", mapTo, " -> ", cur)
+		}
+		return cur, policy, nil
+	}
+	if strings.LastIndexByte(mapTo, '/') != -1 {
+		mapTo, err = transformIP(ip, mapTo)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	if logger != nil && host != mapTo {
 		logger.Info("Redirect: ", host, " -> ", mapTo)
 	}
-	return mapTo, policy, nil
+	return dial.NewSingleDst(mapTo), policy, nil
 }
 
 func transformIP(ip netip.Addr, targetNetStr string) (string, error) {

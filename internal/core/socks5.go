@@ -134,9 +134,10 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 	}
 
 	var (
-		originHost, dstHost string
-		policy              *Policy
-		isIP                bool
+		originHost string
+		dstHost    *dial.Dst
+		policy     *Policy
+		isIP       bool
 	)
 	switch header[3] {
 	case 0x1: // IPv4 address
@@ -201,10 +202,10 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 	if policy.Port != 0 && policy.Port != unsetInt {
 		dstPort = uint16(policy.Port)
 	}
-	target := net.JoinHostPort(dstHost, F.Uint(dstPort))
 
+	port := F.Uint(dstPort)
 	if policy.ReplyFirst != BoolTrue {
-		dstConn, err = dial.DialTCPTimeout(target, policy.ConnectTimeout)
+		dstConn, err = dial.DialTCPTimeoutMulti(dstHost, port, policy.ConnectTimeout)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)
@@ -222,8 +223,9 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 		cliConn:    cliConn,
 		dstConn:    dstConn,
 		oldTarget:  oldTarget,
-		target:     target,
+		target:     dstHost,
 		originHost: originHost,
 		originPort: originPort,
+		port:       port,
 	})
 }

@@ -12,19 +12,19 @@ import (
 )
 
 type Config struct {
-	LogLevel         log.Level               `json:"log_level"`
-	LogOutput        string                  `json:"log_output"`
-	Socks5Addr       string                  `json:"socks5_address"`
-	HttpAddr         string                  `json:"http_address"`
-	SNIProxyAddr     string                  `json:"sniproxy_address"`
-	OutboundBinding  dial.BindingOption      `json:"outbound_binding"`
-	DNSConfig        DNSConfig               `json:"dns"`
-	TTLProbingConfig TTLProbingConfig        `json:"ttl_probing"`
-	IPPools          orderedmap.Map[*IPPool] `json:"ip_pools"`
-	Hosts            orderedmap.Map[string]  `json:"hosts"`
-	DefaultPolicy    Policy                  `json:"default_policy"`
-	DomainPolicies   orderedmap.Map[Policy]  `json:"domain_policies"`
-	IpPolicies       orderedmap.Map[Policy]  `json:"ip_policies"`
+	LogLevel         log.Level                `json:"log_level"`
+	LogOutput        string                   `json:"log_output"`
+	Socks5Addr       string                   `json:"socks5_address"`
+	HttpAddr         string                   `json:"http_address"`
+	SNIProxyAddr     string                   `json:"sniproxy_address"`
+	OutboundBinding  dial.BindingOption       `json:"outbound_binding"`
+	DNSConfig        DNSConfig                `json:"dns"`
+	TTLProbingConfig TTLProbingConfig         `json:"ttl_probing"`
+	IPPools          orderedmap.Map[*IPPool]  `json:"ip_pools"`
+	Hosts            orderedmap.Map[dial.Dst] `json:"hosts"`
+	DefaultPolicy    Policy                   `json:"default_policy"`
+	DomainPolicies   orderedmap.Map[Policy]   `json:"domain_policies"`
+	IpPolicies       orderedmap.Map[Policy]   `json:"ip_policies"`
 }
 
 func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
@@ -65,11 +65,11 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 
 	c.defaultPolicy = conf.DefaultPolicy
 
-	c.hostsMatcher = addrtrie.NewDomainMatcher[string]()
+	c.hostsMatcher = addrtrie.NewDomainMatcher[*dial.Dst]()
 	for patterns, host := range conf.Hosts.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, pattern := range expandPattern(elem) {
-				c.hostsMatcher.Add(pattern, host)
+				c.hostsMatcher.Add(pattern, &host)
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
-	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
 )
 
@@ -34,8 +34,9 @@ type IPPool struct {
 	logger log.Logger
 
 	waitScanOnStartUp bool
-	ips               []string
-	fallbackIP        string
+	multi             bool
+	ips               []netip.Addr
+	fallbackIP        dial.Dst
 	port              uint16
 	topIPCount        uint8
 	attempts          uint8
@@ -56,7 +57,8 @@ type IPPool struct {
 func (p *IPPool) UnmarshalJSON(b []byte) error {
 	var tmp struct {
 		WaitScanOnStartUp bool     `json:"wait_scan_on_startup"`
-		FallbackIP        string   `json:"fallback_ip"`
+		Multi             bool     `json:"multi"`
+		FallbackIP        dial.Dst `json:"fallback_ip"`
 		IPs               []string `json:"ips"`
 		Port              int      `json:"port"`
 		TopIPCount        int      `json:"top_ip_count"`
@@ -125,6 +127,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 	}
 
 	p.waitScanOnStartUp = tmp.WaitScanOnStartUp
+	p.multi = tmp.Multi
 	p.ips = ips
 	p.fallbackIP = tmp.FallbackIP
 	p.port = uint16(tmp.Port)
@@ -138,15 +141,15 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func parseIPList(sources []string) ([]string, error) {
-	ips := make([]string, 0, len(sources)*10)
+func parseIPList(sources []string) ([]netip.Addr, error) {
+	ips := make([]netip.Addr, 0)
 	for _, pattern := range sources {
 		for _, s := range expandPattern(pattern) {
 			if len(ips) >= maxIPPoolSize {
 				return nil, fmt.Errorf("IP pool exceeds maximum size (%d) during parsing", maxIPPoolSize)
 			}
 			if addr, err := netip.ParseAddr(s); err == nil && addr.IsValid() {
-				ips = append(ips, s)
+				ips = append(ips, addr)
 				continue
 			}
 			if prefix, err := netip.ParsePrefix(s); err == nil {
@@ -155,7 +158,7 @@ func parseIPList(sources []string) ([]string, error) {
 					if len(ips) >= maxIPPoolSize {
 						return nil, fmt.Errorf("CIDR %s exceeds max pool size (%d)", s, maxIPPoolSize)
 					}
-					ips = append(ips, addr.String())
+					ips = append(ips, addr)
 					next := addr.Next()
 					if !next.IsValid() || !prefix.Contains(next) {
 						break
@@ -173,7 +176,7 @@ func parseIPList(sources []string) ([]string, error) {
 					if len(ips) >= maxIPPoolSize {
 						return nil, fmt.Errorf("DNS resolution for %s exceeds max pool size", s)
 					}
-					ips = append(ips, addr.String())
+					ips = append(ips, addr)
 				}
 			}
 		}
@@ -236,12 +239,13 @@ func (p *IPPool) testIP(index int) (time.Duration, float64) {
 		successCount int64
 		totalLatency time.Duration
 	)
-	portStr := F.Uint(p.port)
-	addrStr := net.JoinHostPort(p.ips[index], portStr)
+	dialer := dial.NewDialer(p.ips[index].Unmap().Is6())
+	dialer.Timeout = p.timeout
+	addr := netip.AddrPortFrom(p.ips[index], p.port)
 
 	for range p.attempts {
 		start := time.Now()
-		conn, err := dial.DialTCPTimeout(addrStr, p.timeout)
+		conn, err := dialer.DialTCP(context.Background(), "tcp", netip.AddrPort{}, addr)
 		if err != nil {
 			continue
 		}
@@ -300,7 +304,7 @@ func (p *IPPool) updateBest(results []ipResult) {
 	builder.Grow(len("Current best IPs: ") + validCount*17)
 	builder.WriteString("Current best IPs: ")
 	for _, index := range p.bestIndexes[:validCount] {
-		builder.WriteString(p.ips[index])
+		builder.WriteString(p.ips[index].String())
 		builder.WriteByte(' ')
 	}
 	p.logger.Info(builder.String())
@@ -315,14 +319,22 @@ func (p *IPPool) monitor() {
 	}
 }
 
-func (p *IPPool) Get() string {
+func (p *IPPool) Get() *dial.Dst {
 	p.mu.RLock()
 	validCount := p.curValidIPs
 	if validCount == 0 {
 		p.mu.RUnlock()
-		return p.fallbackIP
+		return &p.fallbackIP
 	}
 	indexes := append([]int(nil), p.bestIndexes[:validCount]...)
+	if p.multi {
+		p.mu.RUnlock()
+		addrs := make([]netip.Addr, validCount)
+		for i := range addrs {
+			addrs[i] = p.ips[indexes[i]]
+		}
+		return dial.NewDstFromAddrs(addrs)
+	}
 	weights := append([]int(nil), p.bestWeights[:validCount]...)
 	total := p.totalWeight
 	p.mu.RUnlock()
@@ -333,23 +345,19 @@ func (p *IPPool) Get() string {
 	for i := range validCount {
 		acc += weights[i]
 		if acc > target {
-			return p.ips[indexes[i]]
+			return dial.NewSingleDst(p.ips[indexes[i]].String())
 		}
 	}
-	return p.fallbackIP
+	return &p.fallbackIP
 }
 
-func (c *Core) getFromIPPool(tag string) (ipStr string, err error) {
+func (c *Core) getFromIPPool(tag string) (cur *dial.Dst, err error) {
 	if c.ipPools == nil || c.ipPools.Len() == 0 {
-		return "", E.New("no ip pools")
+		return nil, E.New("no ip pools")
 	}
 	ipPool, exists := c.ipPools.Get(tag)
 	if !exists {
-		return "", E.New("ip pool " + tag + " does not exist")
+		return nil, E.New("ip pool " + tag + " does not exist")
 	}
-	ip := ipPool.Get()
-	if ip == "" {
-		return "", E.New("cannot get ip from " + tag)
-	}
-	return ip, nil
+	return ipPool.Get(), nil
 }

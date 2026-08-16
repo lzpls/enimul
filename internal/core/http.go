@@ -114,8 +114,6 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		dstPort = F.Int(policy.Port)
 	}
 
-	dest := net.JoinHostPort(dstHost, dstPort)
-
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		logger.Error("Hijacking not supported")
@@ -140,7 +138,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 	}()
 
 	if policy.ReplyFirst != BoolTrue {
-		dstConn, err = dial.DialTCPTimeout(dest, policy.ConnectTimeout)
+		dstConn, err = dial.DialTCPTimeoutMulti(dstHost, dstPort, policy.ConnectTimeout)
 		if err != nil {
 			logger.Error("Connection to ", oldDest, " failed: ", err)
 			_, err = cliConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
@@ -163,9 +161,10 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		cliConn:    cliConn,
 		dstConn:    dstConn,
 		oldTarget:  oldDest,
-		target:     dest,
+		target:     dstHost,
 		originHost: originHost,
 		originPort: originPort,
+		port:       dstPort,
 	})
 }
 
@@ -221,10 +220,8 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 	}
 
 	outReq := originReq.Clone(context.Background())
-
-	targetAddr := net.JoinHostPort(dstHost, dstPort)
-	outReq.URL.Host = targetAddr
-	outReq.Host = targetAddr
+	outReq.URL.Host = originReq.URL.Host
+	outReq.Host = originReq.Host
 
 	if outReq.URL.Scheme == "" {
 		outReq.URL.Scheme = "http"
@@ -239,8 +236,8 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
 	if p.ConnectTimeout > 0 {
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return dial.DialTimeout(ctx, network, addr, p.ConnectTimeout)
+		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dial.DialTimeoutMulti(ctx, network, dstHost, dstPort, p.ConnectTimeout)
 		}
 	}
 

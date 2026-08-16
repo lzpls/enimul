@@ -21,8 +21,10 @@ type tunnelSession = struct {
 	logger                 log.Logger
 	p                      *Policy
 	cliConn, dstConn       net.Conn
-	oldTarget, target      string
+	oldTarget              string
+	target                 *dial.Dst
 	originHost, originPort string
+	port                   string
 	fromSNIProxy           bool
 }
 
@@ -45,7 +47,7 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 
 	if ts.p.Mode == ModeRaw {
 		if ts.dstConn == nil {
-			ts.dstConn, err = dial.DialTCPTimeout(ts.target, ts.p.ConnectTimeout)
+			ts.dstConn, err = dial.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout)
 			if err != nil {
 				ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 				return
@@ -65,8 +67,8 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 
 		if peekBytes[0] == tlsRecordTypeHandshake {
 			if peekBytes[1] == tlsMajorVersion {
-				payloadLen := 5+int(binary.BigEndian.Uint16(peekBytes[3:5]))
-				if !c.handleTLS(ts,payloadLen, br) {
+				payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
+				if !c.handleTLS(ts, payloadLen, br) {
 					return
 				}
 			}
@@ -181,7 +183,7 @@ func handleHTTP(ts *tunnelSession, req *http.Request) (ok bool) {
 		return
 	}
 	if ts.dstConn == nil {
-		ts.dstConn, err = dial.DialTCPTimeout(ts.target, ts.p.ConnectTimeout)
+		ts.dstConn, err = dial.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout)
 		if err != nil {
 			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			resp := &http.Response{
@@ -294,31 +296,31 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 					return
 				}
 				ts.logger.Info("SNI policy: ", sniPolicy)
+				port := ts.originPort
 				if sniPolicy.Port != 0 && sniPolicy.Port != unsetInt {
-					ts.originPort = F.Int(sniPolicy.Port)
+					port = F.Int(sniPolicy.Port)
 				}
-				newTarget := net.JoinHostPort(newDst, ts.originPort)
-				newConn, err := dial.DialTCPTimeout(newTarget, sniPolicy.ConnectTimeout)
+				newConn, err := dial.DialTCPTimeoutMulti(newDst, port, sniPolicy.ConnectTimeout)
 				if err == nil {
 					if ts.dstConn != nil {
 						ts.dstConn.Close()
 					}
-					ts.dstConn, ts.p, ts.target = newConn, sniPolicy, newTarget
+					ts.dstConn, ts.p, ts.target, ts.port = newConn, sniPolicy, newDst, port
 					if !ts.fromSNIProxy {
 						ts.logger.Info("Target has been changed to ", sniStr)
 					}
 				} else if ts.fromSNIProxy {
-					ts.logger.Error("Connection to ", newTarget, " failed:", err)
+					ts.logger.Error("Connection to ", net.JoinHostPort(sniStr, port), " failed:", err)
 					return
 				} else {
-					ts.logger.Error("Connection to ", newTarget, " failed:", err, "; falling back to origin")
+					ts.logger.Error("Connection to ", net.JoinHostPort(sniStr, port), " failed:", err, "; falling back to origin")
 				}
 			}
 		}
 	}
 
 	if ts.dstConn == nil {
-		ts.dstConn, err = dial.DialTCPTimeout(ts.target, ts.p.ConnectTimeout)
+		ts.dstConn, err = dial.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout)
 		if err != nil {
 			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			return
@@ -346,14 +348,13 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 		}
 		ts.logger.Info("Sent ClientHello in fragments")
 	case ModeTTLD:
-		isIPv6 := ts.target[0] == '['
-		ttl, err := c.getFakeTTL(ts.logger, ts.p, ts.target, isIPv6)
+		ttl, err := c.getFakeTTL(ts.logger, ts.p, ts.dstConn.RemoteAddr().(*net.TCPAddr).AddrPort())
 		if err != nil {
 			ts.logger.Error("Get fake TTL: ", err)
 			return
 		}
 		if err = desyncSend(
-			ts.dstConn, isIPv6, record,
+			ts.dstConn, record,
 			sniStart, sniLen, ttl, ts.p.FakeSleep,
 		); err != nil {
 			ts.logger.Error("TTL desync: ", err)

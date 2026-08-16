@@ -25,7 +25,7 @@
     "disable_cache": false,
     "cache_capacity": 4096,
     "edns0_subnet": "",
-    "doh_socks5_addr": ""
+    "doh_socks5_addr": "localhost:1080"
   },
   "ttl_probing": {
     "fake_ttl_rules": "0-1;3=3;5-1;8-2;13-3;20=18",
@@ -37,12 +37,14 @@
       "ips": ["enimul.cf.090227.xyz", "www.visa.cn", "time.is", "mfa.gov.ua"],
       "port": 443,
       "wait_scan_on_startup": true,
-      "fallback_ip": "enimul.cf.090227.xyz"
+      "fallback_ip": "enimul.cf.090227.xyz",
+      "multi": true
     },
     "cloudfront": {
       "ips": ["108.158.4.0/24", "futuregadget-lab.com"],
       "port": 443,
-      "fallback_ip": "futuregadget-lab.com"
+      "fallback_ip": "futuregadget-lab.com",
+      "multi": true
     },
     "gws": {
       "ips": ["173.194.47.90", "192.178.238.90", "192.178.238.90", "172.253.148.90", "192.178.161.253", "142.251.11.253"],
@@ -63,13 +65,15 @@
       ],
       "port": 443,
       "top_ip_count": 3,
-      "fallback_ip": "52.74.6.109"
+      "fallback_ip": "52.74.6.109",
+      "multi": true
     },
     "archive": {
       "ips": ["207.241.225.(119|120|195)"],
       "port": 443,
-      "top_ip_count": 1,
-      "fallback_ip": "207.241.225.119"
+      "top_ip_count": 3,
+      "fallback_ip": "207.241.225.119",
+      "multi": true
     },
     "vercel": {
       "ips": [
@@ -90,7 +94,8 @@
         "20.27.177.113"
       ],
       "port": 443,
-      "fallback_ip": "4.237.22.38"
+      "fallback_ip": "4.237.22.38",
+      "multi": true
     }
   },
   "hosts": {

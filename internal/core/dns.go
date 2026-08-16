@@ -12,13 +12,14 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
+	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/singleflight"
-
-	"github.com/cespare/xxhash/v2"
-	"github.com/miekg/dns"
 	"golang.org/x/net/proxy"
+
+	"github.com/miekg/dns"
 )
 
 type DNSClient interface {
@@ -30,8 +31,8 @@ type dnsExchangeFunc = func(req *dns.Msg) (resp *dns.Msg, err error)
 type dnsFields = struct {
 	client         DNSClient
 	exchange       dnsExchangeFunc
-	cache          *freelru.ShardedLRU[string, string]
-	resolveGroup   *singleflight.Group[string, string]
+	cache          *freelru.ShardedLRU[string, *dial.Dst]
+	resolveGroup   *singleflight.Group[string, *dial.Dst]
 	edns0SubnetOpt *dns.OPT
 }
 
@@ -144,7 +145,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 	}
 
 	if conf.SingleFlight {
-		c.dns.resolveGroup = new(singleflight.Group[string, string])
+		c.dns.resolveGroup = new(singleflight.Group[string, *dial.Dst])
 	}
 
 	if !conf.DisableCache {
@@ -152,7 +153,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			conf.CacheCapacity = 4096
 		}
 		var err error
-		c.dns.cache, err = freelru.NewSharded[string, string](conf.CacheCapacity, xxhash.Sum64String)
+		c.dns.cache, err = freelru.NewSharded[string, *dial.Dst](conf.CacheCapacity, xxhash.Sum64String)
 		if err != nil {
 			return E.WithStr("init DNS cache", err)
 		}
@@ -161,7 +162,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 	if conf.EDNS0Subnet != "" {
 		prefix, err := netip.ParsePrefix(conf.EDNS0Subnet)
 		if err != nil {
-			return fmt.Errorf("invalid edns0_subnet %s: %w", conf.EDNS0Subnet, err)
+			return fmt.Errorf("invalid edns0_subnet %q: %w", conf.EDNS0Subnet, err)
 		}
 		family := uint16(1)
 		if prefix.Addr().Unmap().Is6() {
@@ -235,14 +236,22 @@ const (
 	DNSModePreferIPv6
 	DNSModeIPv4Only
 	DNSModeIPv6Only
+	DNSModeMultiPreferIPv4
+	DNSModeMultiPreferIPv6
+	DNSModeMultiIPv4Only
+	DNSModeMultiIPv6Only
 	DNSModeDefault = DNSModePreferIPv4
 )
 
 const (
-	DNSModeNamePreferIPv4 = "prefer_ipv4"
-	DNSModeNamePreferIPv6 = "prefer_ipv6"
-	DNSModeNameIPv4Only   = "ipv4_only"
-	DNSModeNameIPv6Only   = "ipv6_only"
+	DNSModeNamePreferIPv4      = "prefer_ipv4"
+	DNSModeNamePreferIPv6      = "prefer_ipv6"
+	DNSModeNameIPv4Only        = "ipv4_only"
+	DNSModeNameIPv6Only        = "ipv6_only"
+	DNSModeNameMultiPreferIPv4 = "multi_prefer_ipv4"
+	DNSModeNameMultiPreferIPv6 = "multi_prefer_ipv6"
+	DNSModeNameMultiIPv4Only   = "multi_ipv4_only"
+	DNSModeNameMultiIPv6Only   = "multi_ipv6_only"
 )
 
 func (m DNSMode) String() string {
@@ -255,6 +264,14 @@ func (m DNSMode) String() string {
 		return DNSModeNameIPv4Only
 	case DNSModeIPv6Only:
 		return DNSModeNameIPv6Only
+	case DNSModeMultiPreferIPv4:
+		return DNSModeNameMultiPreferIPv4
+	case DNSModeMultiPreferIPv6:
+		return DNSModeNameMultiPreferIPv6
+	case DNSModeMultiIPv4Only:
+		return DNSModeNameMultiIPv4Only
+	case DNSModeMultiIPv6Only:
+		return DNSModeNameMultiIPv6Only
 	}
 	return "unknown"
 }
@@ -273,8 +290,16 @@ func (m *DNSMode) UnmarshalJSON(data []byte) error {
 		*m = DNSModeIPv4Only
 	case DNSModeNameIPv6Only:
 		*m = DNSModeIPv6Only
+	case DNSModeNameMultiPreferIPv4:
+		*m = DNSModePreferIPv4
+	case DNSModeNameMultiPreferIPv6:
+		*m = DNSModePreferIPv6
+	case DNSModeNameMultiIPv4Only:
+		*m = DNSModeMultiIPv4Only
+	case DNSModeNameMultiIPv6Only:
+		*m = DNSModeMultiIPv6Only
 	default:
-		return E.New("invalid dns_mode: " + s)
+		return fmt.Errorf("invalid dns_mode: %q", s)
 	}
 	return nil
 }
@@ -297,13 +322,118 @@ func pickFirstAAAARecord(answer []dns.RR) net.IP {
 	return nil
 }
 
-func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration) (string, error) {
-	msg := new(dns.Msg)
+func pickARecords(answer []dns.RR) []net.IP {
+	ips := make([]net.IP, 0)
+	for _, ans := range answer {
+		if record, ok := ans.(*dns.A); ok {
+			ips = append(ips, record.A)
+		}
+	}
+	return ips
+}
+
+func pickAAAARecords(answer []dns.RR) []net.IP {
+	ips := make([]net.IP, 0)
+	for _, ans := range answer {
+		if record, ok := ans.(*dns.AAAA); ok {
+			ips = append(ips, record.AAAA)
+		}
+	}
+	return ips
+}
+
+func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ip net.IP, _ error) {
 	switch mode {
-	case DNSModePreferIPv4, DNSModeIPv4Only:
-		msg.SetQuestion(domain+".", dns.TypeA)
-	case DNSModePreferIPv6, DNSModeIPv6Only:
-		msg.SetQuestion(domain+".", dns.TypeAAAA)
+	case DNSModeIPv4Only:
+		if ip = pickFirstARecord(ans); ip == nil {
+			return nil, E.New("A record not found")
+		}
+	case DNSModeIPv6Only:
+		if ip = pickFirstAAAARecord(ans); ip == nil {
+			return nil, E.New("AAAA record not found")
+		}
+	case DNSModePreferIPv4:
+		if ip = pickFirstARecord(ans); ip == nil {
+			msg.SetQuestion(domain, dns.TypeAAAA)
+			resp, err2 := c.dns.exchange(msg)
+			if err2 != nil {
+				return nil, E.WithStr("dns exchange", E.Join(err, err2))
+			}
+			if resp.Rcode != dns.RcodeSuccess {
+				return nil, E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
+			}
+			if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
+				return nil, E.New("record not found")
+			}
+		}
+	case DNSModePreferIPv6:
+		if ip = pickFirstAAAARecord(ans); ip == nil {
+			msg.SetQuestion(domain, dns.TypeA)
+			resp, err2 := c.dns.exchange(msg)
+			if err2 != nil {
+				return nil, E.WithStr("dns exchange", E.Join(err, err2))
+			}
+			if resp.Rcode != dns.RcodeSuccess {
+				return nil, E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
+			}
+			if ip = pickFirstARecord(resp.Answer); ip == nil {
+				return nil, E.New("record not found")
+			}
+		}
+	}
+	return
+}
+
+func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ips []net.IP, _ error) {
+	switch mode {
+	case DNSModeMultiIPv4Only:
+		if ips = pickARecords(ans); ips == nil {
+			return nil, E.New("A record not found")
+		}
+	case DNSModeMultiIPv6Only:
+		if ips = pickAAAARecords(ans); ips == nil {
+			return nil, E.New("AAAA record not found")
+		}
+	case DNSModeMultiPreferIPv4:
+		if ips = pickARecords(ans); ips == nil {
+			msg.SetQuestion(domain, dns.TypeAAAA)
+			resp, err2 := c.dns.exchange(msg)
+			if err2 != nil {
+				return nil, E.WithStr("dns exchange", E.Join(err, err2))
+			}
+			if resp.Rcode != dns.RcodeSuccess {
+				return nil, E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
+			}
+			if ips = pickAAAARecords(resp.Answer); ips == nil {
+				return nil, E.New("record not found")
+			}
+		}
+	case DNSModeMultiPreferIPv6:
+		if ips = pickAAAARecords(ans); ips == nil {
+			msg.SetQuestion(domain, dns.TypeA)
+			resp, err2 := c.dns.exchange(msg)
+			if err2 != nil {
+				return nil, E.WithStr("dns exchange", E.Join(err, err2))
+			}
+			if resp.Rcode != dns.RcodeSuccess {
+				return nil, E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
+			}
+			if ips = pickARecords(resp.Answer); ips == nil {
+				return nil, E.New("record not found")
+			}
+		}
+	}
+	return
+}
+
+func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration) (*dial.Dst, error) {
+	msg := new(dns.Msg)
+	domain = dns.Fqdn(domain)
+	switch mode {
+	case DNSModePreferIPv4, DNSModeIPv4Only, DNSModeMultiPreferIPv4, DNSModeMultiIPv4Only:
+		msg.SetQuestion(domain, dns.TypeA)
+	case DNSModePreferIPv6, DNSModeIPv6Only, DNSModeMultiPreferIPv6, DNSModeMultiIPv6Only:
+		msg.SetQuestion(domain, dns.TypeAAAA)
 	}
 	if c.dns.edns0SubnetOpt != nil {
 		msg.Extra = []dns.RR{c.dns.edns0SubnetOpt}
@@ -311,70 +441,45 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 
 	resp, err := c.dns.exchange(msg)
 	if err != nil {
-		return "", E.WithStr("dns exchange", err)
+		return nil, E.WithStr("dns exchange", err)
 	}
 	if resp.Rcode != dns.RcodeSuccess {
-		return "", E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
+		return nil, E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
 	}
 
-	var ip net.IP
+	var dst *dial.Dst
 	switch mode {
-	case DNSModeIPv4Only:
-		if ip = pickFirstARecord(resp.Answer); ip == nil {
-			return "", E.New("A record not found")
+	case DNSModeIPv4Only, DNSModeIPv6Only, DNSModePreferIPv4, DNSModePreferIPv6:
+		ip, err := c.dnsResolveSingle(domain, mode, resp.Answer, msg, err)
+		if err != nil {
+			return nil, err
 		}
-	case DNSModeIPv6Only:
-		if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
-			return "", E.New("AAAA record not found")
+		dst = dial.NewSingleDst(ip.String())
+	case DNSModeMultiIPv4Only, DNSModeMultiIPv6Only, DNSModeMultiPreferIPv4, DNSModeMultiPreferIPv6:
+		ips, err := c.dnsResolveMulti(domain, mode, resp.Answer, msg, err)
+		if err != nil {
+			return nil, err
 		}
-	case DNSModePreferIPv4:
-		if ip = pickFirstARecord(resp.Answer); ip == nil {
-			msg.SetQuestion(domain+".", dns.TypeAAAA)
-			resp, err2 := c.dns.exchange(msg)
-			if err2 != nil {
-				return "", E.WithStr("dns exchange", E.Join(err, err2))
-			}
-			if resp.Rcode != dns.RcodeSuccess {
-				return "", E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
-			}
-			if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
-				return "", E.New("record not found")
-			}
-		}
-	case DNSModePreferIPv6:
-		if ip = pickFirstAAAARecord(resp.Answer); ip == nil {
-			msg.SetQuestion(domain+".", dns.TypeA)
-			resp, err2 := c.dns.exchange(msg)
-			if err2 != nil {
-				return "", E.WithStr("dns exchange", E.Join(err, err2))
-			}
-			if resp.Rcode != dns.RcodeSuccess {
-				return "", E.New("bad rcode: " + dns.RcodeToString[resp.Rcode])
-			}
-			if ip = pickFirstARecord(resp.Answer); ip == nil {
-				return "", E.New("record not found")
-			}
-		}
+		dst = dial.NewDstFromIPs(ips)
 	}
 
-	ipStr := ip.String()
 	if cacheTTL != 0 && cacheTTL != unsetInt && c.dns.cache != nil {
-		c.dns.cache.AddWithLifetime(domain, ipStr, cacheTTL)
+		c.dns.cache.AddWithLifetime(domain, dst, cacheTTL)
 	}
-	return ipStr, nil
+	return dst, nil
 }
 
-func (c *Core) dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (ip string, cached bool, err error) {
+func (c *Core) dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (dst *dial.Dst, cached bool, err error) {
 	if c.dns.cache != nil {
-		if ip, ok := c.dns.cache.Get(domain); ok {
-			return ip, true, nil
+		if dst, ok := c.dns.cache.Get(domain); ok {
+			return dst, true, nil
 		}
 	}
 
 	if c.dns.resolveGroup == nil {
-		ip, err = c.doDNSResolve(domain, mode, cacheTTL)
+		dst, err = c.doDNSResolve(domain, mode, cacheTTL)
 	} else {
-		ip, err, _ = c.dns.resolveGroup.Do(domain, func() (string, error) {
+		dst, err, _ = c.dns.resolveGroup.Do(domain, func() (*dial.Dst, error) {
 			return c.doDNSResolve(domain, mode, cacheTTL)
 		})
 	}

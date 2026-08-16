@@ -3,7 +3,10 @@
 package core
 
 import (
+	"context"
+	"hash/maphash"
 	"net"
+	"net/netip"
 	"sort"
 	"syscall"
 	"time"
@@ -15,14 +18,12 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/platform"
 	"github.com/lzpls/enimul/internal/singleflight"
-
-	"github.com/cespare/xxhash/v2"
 )
 
 type ttlProbingFields = struct {
 	calc         func(int) (int, error)
-	cache        *freelru.ShardedLRU[string, int]
-	probingGroup *singleflight.Group[string, int]
+	cache        *freelru.ShardedLRU[netip.Addr, int]
+	probingGroup *singleflight.Group[netip.AddrPort, int]
 }
 
 type TTLProbingConfig struct {
@@ -32,19 +33,24 @@ type TTLProbingConfig struct {
 	CacheCapacity uint32 `json:"cache_capacity"`
 }
 
+func buildHashFunc[K comparable]() freelru.HashKeyCallback[K] {
+	seed := maphash.MakeSeed()
+	return func(k K) uint64 { return maphash.Comparable(seed, k) }
+}
+
 func (c *Core) setTTLProbing(conf TTLProbingConfig) error {
 	if err := c.loadTTLRules(conf.FakeTTLRules); err != nil {
 		return err
 	}
 	if conf.SingleFlight {
-		c.ttl.probingGroup = new(singleflight.Group[string, int])
+		c.ttl.probingGroup = new(singleflight.Group[netip.AddrPort, int])
 	}
 	if !conf.DisableCache {
 		if conf.CacheCapacity == 0 {
 			conf.CacheCapacity = 1024
 		}
 		var err error
-		c.ttl.cache, err = freelru.NewSharded[string, int](conf.CacheCapacity, xxhash.Sum64String)
+		c.ttl.cache, err = freelru.NewSharded[netip.Addr, int](conf.CacheCapacity, buildHashFunc[netip.Addr]())
 		if err != nil {
 			return E.WithStr("init TTL cache", err)
 		}
@@ -136,34 +142,30 @@ func (c *Core) loadTTLRules(conf string) error {
 	return nil
 }
 
-func (c *Core) getMinimumReachableTTL(addr string, ipv6 bool, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
-	ip, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return 0, false, err
-	}
-
+func (c *Core) getMinimumReachableTTL(addr netip.AddrPort, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
 	if c.ttl.cache != nil {
-		if ttl, ok := c.ttl.cache.Get(ip); ok {
+		if ttl, ok := c.ttl.cache.Get(addr.Addr().Unmap()); ok {
 			return ttl, true, nil
 		}
 	}
 
 	ttl := -1
+	var err error
 	if c.ttl.probingGroup != nil {
 		ttl, err, _ = c.ttl.probingGroup.Do(addr, func() (int, error) {
-			return c.probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
+			return c.probeMinimumReachableTTL(addr, maxTTL, attempts, dialTimeout, cacheTTL)
 		})
 	} else {
-		ttl, err = c.probeMinimumReachableTTL(ip, addr, ipv6, maxTTL, attempts, dialTimeout, cacheTTL)
+		ttl, err = c.probeMinimumReachableTTL(addr, maxTTL, attempts, dialTimeout, cacheTTL)
 	}
 	return ttl, false, err
 }
 
-func (c *Core) getFakeTTL(logger log.Logger, p *Policy, addr string, ipv6 bool) (int, error) {
+func (c *Core) getFakeTTL(logger log.Logger, p *Policy, addr netip.AddrPort) (int, error) {
 	if p.FakeTTL != 0 && p.FakeTTL != unsetInt {
 		return p.FakeTTL, nil
 	}
-	ttl, cached, err := c.getMinimumReachableTTL(addr, ipv6, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
+	ttl, cached, err := c.getMinimumReachableTTL(addr, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
 	if err != nil {
 		return -1, E.WithStr("get minimum reachable ttl", err)
 	}
@@ -191,7 +193,7 @@ func ttlLevelOption(isIPv6 bool) (int, int) {
 }
 
 func (c *Core) probeMinimumReachableTTL(
-	ip, addr string, isIPv6 bool,
+	addr netip.AddrPort,
 	maxTTL, attempts int,
 	dialTimeout, cacheTTL time.Duration,
 ) (int, error) {
@@ -199,6 +201,8 @@ func (c *Core) probeMinimumReachableTTL(
 		Timeout() bool
 	}
 
+	ip := addr.Addr().Unmap()
+	isIPv6 := ip.Is6()
 	level, opt := ttlLevelOption(isIPv6)
 	dialer := dial.NewDialer(isIPv6)
 	dialer.Timeout = dialTimeout
@@ -219,7 +223,7 @@ func (c *Core) probeMinimumReachableTTL(
 		}
 		var ok bool
 		for range attempts {
-			conn, err := dialer.Dial("tcp", addr)
+			conn, err := dialer.DialTCP(context.Background(), "tcp", netip.AddrPort{}, addr)
 			if err == nil {
 				conn.Close()
 				ok = true
@@ -244,7 +248,7 @@ func (c *Core) probeMinimumReachableTTL(
 }
 
 func desyncSend(
-	conn net.Conn, isIPv6 bool,
+	conn net.Conn,
 	record []byte, sniStart, sniLen int,
 	fakeTTL int, fakeSleep time.Duration,
 ) error {
@@ -253,6 +257,7 @@ func desyncSend(
 		return err
 	}
 
+	isIPv6 := conn.RemoteAddr().(*net.TCPAddr).IP.To16() != nil
 	level, opt := ttlLevelOption(isIPv6)
 	var defaultTTL int
 	var innerErr error
