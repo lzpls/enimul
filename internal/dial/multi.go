@@ -157,11 +157,8 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 		dialDelay = defaultDialDelay
 	}
 
-	type dialResult struct {
-		conn *net.TCPConn
-		err  error
-	}
-	resultCh := make(chan dialResult, len(addrs))
+	connCh := make(chan *net.TCPConn, 1)
+	errCh := make(chan error, len(addrs))
 
 	dialCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -171,6 +168,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 
 	wg.Go(func() {
 		var prevFailed chan struct{}
+
 		for i, addr := range addrs {
 			if i > 0 {
 				timer := time.NewTimer(dialDelay)
@@ -198,13 +196,19 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 				}
 				laddr := GetLocalAddr(ip.Is6()).AddrPort()
 				conn, err := dialer.DialTCP(dialCtx, "tcp", laddr, addr)
+
 				if err != nil {
-					select {
-					case currFailed <- struct{}{}:
-					default:
-					}
+					currFailed <- struct{}{}
+					errCh <- err
+					return
 				}
-				resultCh <- dialResult{conn, err}
+
+				select {
+				case connCh <- conn:
+					cancel()
+				default:
+					conn.Close()
+				}
 			})
 			prevFailed = currFailed
 		}
@@ -212,23 +216,25 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 
 	go func() {
 		wg.Wait()
-		close(resultCh)
-		for r := range resultCh {
-			if r.conn != nil {
-				r.conn.Close()
-			}
+		close(connCh)
+		close(errCh)
+		for conn := range connCh {
+			conn.Close()
 		}
 	}()
 
-	var errs []error
-	for r := range resultCh {
-		if r.err == nil {
-			cancel()
-			return r.conn, nil
-		}
-		errs = append(errs, r.err)
+	if conn, ok := <-connCh; ok {
+		return conn, nil
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
 	return nil, E.Join(errs...)
 }
 
