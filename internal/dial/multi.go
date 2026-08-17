@@ -139,14 +139,20 @@ func DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay
 }
 
 func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (net.Conn, error) {
-	if len(addrs) == 0 {
+	switch len(addrs) {
+	case 0:
 		return nil, E.New("no addresses to dial")
+	case 1:
+		raddr := addrs[0]
+		return NewDialer(addrportIs6(raddr)).DialTCP(ctx, "tcp", netip.AddrPort{}, raddr)
 	}
+
 	p, err := strconv.ParseUint(portStr, 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("invalid port %q: %w", portStr, err)
 	}
 	port := uint16(p)
+
 	if dialDelay <= 0 {
 		dialDelay = defaultDialDelay
 	}
@@ -224,3 +230,5 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 
 	return nil, E.Join(errs...)
 }
+
+func addrportIs6(ap netip.AddrPort) bool { return ap.Addr().Unmap().Is6() }
