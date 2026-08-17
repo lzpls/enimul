@@ -125,7 +125,8 @@ func DialContextMulti(ctx context.Context, network string, dst *Dst, port string
 	if dst.IsMulti() {
 		return dialParallel(ctx, dst.multi, port, dialDelay)
 	}
-	return NewDialer(dst.single[0] == '[').DialContext(ctx, network, net.JoinHostPort(dst.single, port))
+	raddr := net.JoinHostPort(dst.single, port)
+	return NewDialer(raddr[0] == '[').DialContext(ctx, network, raddr)
 }
 
 func DialTimeoutMulti(ctx context.Context, network string, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
