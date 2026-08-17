@@ -167,6 +167,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 	defer cancel()
 
 	var wg sync.WaitGroup
+	var dialer net.Dialer
 
 	wg.Go(func() {
 		var prevFailed chan struct{}
@@ -195,8 +196,8 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 				if addr.Port() == 0 {
 					addr = netip.AddrPortFrom(ip, port)
 				}
-				dialer := NewDialer(ip.Is6())
-				conn, err := dialer.DialTCP(dialCtx, "tcp", netip.AddrPort{}, addr)
+				laddr := GetLocalAddr(ip.Is6()).AddrPort()
+				conn, err := dialer.DialTCP(dialCtx, "tcp", laddr, addr)
 				if err != nil {
 					select {
 					case currFailed <- struct{}{}:

@@ -16,19 +16,18 @@ var (
 	localIPv6 atomic.Pointer[net.TCPAddr]
 )
 
-// Note: the returned *net.Dialer is a shallow copy – you may change Timeout, Control,
-// etc., but do NOT modify Resolver (they share the global instances).
-func NewDialer(isIPv6 bool) *net.Dialer {
-	var addr *net.TCPAddr
+func GetLocalAddr(isIPv6 bool) *net.TCPAddr {
 	if isIPv6 {
-		addr = localIPv6.Load()
-	} else {
-		addr = localIPv4.Load()
+		return localIPv6.Load()
 	}
-	if addr == nil {
-		return new(net.Dialer)
+	return localIPv4.Load()
+}
+
+func NewDialer(isIPv6 bool) *net.Dialer {
+	if addr := GetLocalAddr(isIPv6); addr != nil {
+		return &net.Dialer{LocalAddr: addr}
 	}
-	return &net.Dialer{LocalAddr: addr}
+	return new(net.Dialer)
 }
 
 func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
