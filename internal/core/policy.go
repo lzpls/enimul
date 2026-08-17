@@ -695,7 +695,8 @@ func (c *Core) genPolicy(
 	}
 
 	if strings.HasPrefix(single, resolvePrefix) {
-		resolved, cached, err := c.dnsResolve(single[1:], p.DNSMode, p.DNSCacheTTL)
+		cname := single[1:]
+		resolved, cached, err := c.dnsResolve(cname, p.DNSMode, p.DNSCacheTTL)
 		if err != nil {
 			logger.Error("Resolve ", originHost, " failed: ", err)
 			return nil, nil, true, false, false
@@ -704,7 +705,7 @@ func (c *Core) genPolicy(
 		if cached {
 			prefix = "DNS (cached): "
 		}
-		logger.Info(prefix, originHost, " -> ", resolved)
+		logger.Info(prefix, originHost, " -> ", cname, " -> ", resolved)
 		if resolved.IsMulti() {
 			host = resolved
 			return
@@ -724,14 +725,14 @@ func (c *Core) genPolicy(
 				logger.Error(err)
 				return nil, nil, true, false, false
 			}
-			logger.Info(logPrefix, single, " -> ", cur)
+			logger.Info(logPrefix, originHost, " -> ", single, " -> ", cur)
 			if cur.IsMulti() {
 				host = cur
 				return
 			}
 			single = cur.Single()
 		} else {
-			logger.Info(logPrefix, single)
+			logger.Info(logPrefix, originHost, " -> ", single)
 		}
 	}
 
