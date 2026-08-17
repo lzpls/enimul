@@ -123,7 +123,7 @@ func (d *Dst) UnmarshalJSON(data []byte) error {
 
 func DialContextMulti(ctx context.Context, network string, dst *Dst, port string, dialDelay time.Duration) (net.Conn, error) {
 	if dst.IsMulti() {
-		return dialParallel(ctx, dst.multi, port, 300*time.Millisecond)
+		return dialParallel(ctx, dst.multi, port, dialDelay)
 	}
 	return NewDialer(dst.single[0] == '[').DialContext(ctx, network, net.JoinHostPort(dst.single, port))
 }
