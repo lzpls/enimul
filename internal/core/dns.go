@@ -428,12 +428,12 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 
 func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration) (*dial.Dst, error) {
 	msg := new(dns.Msg)
-	domain = dns.Fqdn(domain)
+	fqdn := dns.Fqdn(domain)
 	switch mode {
 	case DNSModePreferIPv4, DNSModeIPv4Only, DNSModeMultiPreferIPv4, DNSModeMultiIPv4Only:
-		msg.SetQuestion(domain, dns.TypeA)
+		msg.SetQuestion(fqdn, dns.TypeA)
 	case DNSModePreferIPv6, DNSModeIPv6Only, DNSModeMultiPreferIPv6, DNSModeMultiIPv6Only:
-		msg.SetQuestion(domain, dns.TypeAAAA)
+		msg.SetQuestion(fqdn, dns.TypeAAAA)
 	}
 	if c.dns.edns0SubnetOpt != nil {
 		msg.Extra = []dns.RR{c.dns.edns0SubnetOpt}
@@ -450,13 +450,13 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 	var dst *dial.Dst
 	switch mode {
 	case DNSModeIPv4Only, DNSModeIPv6Only, DNSModePreferIPv4, DNSModePreferIPv6:
-		ip, err := c.dnsResolveSingle(domain, mode, resp.Answer, msg, err)
+		ip, err := c.dnsResolveSingle(fqdn, mode, resp.Answer, msg, err)
 		if err != nil {
 			return nil, err
 		}
 		dst = dial.NewSingleDst(ip.String())
 	case DNSModeMultiIPv4Only, DNSModeMultiIPv6Only, DNSModeMultiPreferIPv4, DNSModeMultiPreferIPv6:
-		ips, err := c.dnsResolveMulti(domain, mode, resp.Answer, msg, err)
+		ips, err := c.dnsResolveMulti(fqdn, mode, resp.Answer, msg, err)
 		if err != nil {
 			return nil, err
 		}
