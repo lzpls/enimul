@@ -367,7 +367,7 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 
 func checkTLS13Only(logger log.Logger, isTLS13 bool, p *Policy, conn net.Conn, prtVer []byte) (ok bool) {
 	if !isTLS13 && p.TLS13Only.IsTrue() {
-		logger.Info("Connection blocked: key_share missing from ClientHello")
+		logger.Info("Connection blocked: supported_version missing from ClientHello")
 		sendTLSAlert(logger, conn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
 		return
 	}
