@@ -257,7 +257,7 @@ func desyncSend(
 		return err
 	}
 
-	isIPv6 := conn.RemoteAddr().(*net.TCPAddr).IP.To16() != nil
+	isIPv6 := conn.RemoteAddr().(*net.TCPAddr).IP.To4() == nil
 	level, opt := ttlLevelOption(isIPv6)
 	var defaultTTL int
 	var innerErr error
