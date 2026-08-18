@@ -31,15 +31,6 @@ type Config struct {
 	IpPolicies       orderedmap.Map[Policy]   `json:"ip_policies"`
 }
 
-func (c *Config) UnmarshalJSON(data []byte) error {
-	b, err := hujson.Standardize(data)
-	if err != nil {
-		return err
-	}
-	type alias Config
-	return json.Unmarshal(b, (*alias)(c))
-}
-
 func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
 	anErr := func(text string, err error) (string, string, string, error) {
 		return "", "", "", E.WithStr(text, err)
