@@ -120,13 +120,14 @@ func (c *Core) setDNS(conf DNSConfig) error {
 		}
 		c.dns.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp-tls"}, addr)
 	case "https":
-		if !isValidHTTPSURL(addr) {
-			return E.New("invalid dns.addr")
+		dohURL, err := url.Parse(addr)
+		if err != nil {
+			return fmt.Errorf("invalid DoH URL %q: %w", addr, err)
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		if conf.DoHSocks5Addr == "" {
 			var err error
-			transport.DialContext, err = c.genDoHDialFunc(addr)
+			transport.DialContext, err = c.genDoHDialFunc(dohURL)
 			if err != nil {
 				return E.WithStr("generate DoH dial function", err)
 			}
@@ -221,11 +222,6 @@ func buildDoHExchangeFunc(httpClient *http.Client, addr string) dnsExchangeFunc 
 		}
 		return
 	}
-}
-
-func isValidHTTPSURL(s string) bool {
-	u, err := url.Parse(s)
-	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 type DNSMode uint8

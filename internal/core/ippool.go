@@ -351,13 +351,20 @@ func (p *IPPool) Get() *dial.Dst {
 	return &p.fallbackIP
 }
 
-func (c *Core) getFromIPPool(tag string) (cur *dial.Dst, err error) {
+func (c *Core) getIPPool(tag string) (*IPPool, error) {
 	if c.ipPools == nil || c.ipPools.Len() == 0 {
 		return nil, E.New("no ip pools")
 	}
-	ipPool, exists := c.ipPools.Get(tag)
-	if !exists {
-		return nil, E.New("ip pool " + tag + " does not exist")
+	if ipPool, exists := c.ipPools.Get(tag); exists {
+		return ipPool, nil
 	}
-	return ipPool.Get(), nil
+	return nil, E.New("ip pool " + tag + " does not exist")
+}
+
+func (c *Core) getDstFromIPPool(tag string) (cur *dial.Dst, err error) {
+	pool, err := c.getIPPool(tag)
+	if err != nil {
+		return nil, err
+	}
+	return pool.Get(), nil
 }

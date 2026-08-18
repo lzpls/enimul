@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	_ "net/url"
+	"net/url"
 	"strings"
 	"time"
 
@@ -602,8 +602,159 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 	return
 }
 
-func (c *Core) genDoHDialFunc(dnsAddr string) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
-	return nil, E.New("DoH dial function is not implemented yet, please use `doh_socks5_addr`")
+func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
+	if dohURL.Scheme != "https" || dohURL.Host == "" {
+		return nil, E.New("invalid DoH URL")
+	}
+
+	originHost := dohURL.Hostname()
+	dstPort := dohURL.Port()
+	if dstPort == "" {
+		dstPort = "443"
+	}
+	policy := &c.defaultPolicy
+
+	var (
+		finalDst                              *dial.Dst
+		domainPolicy, ipPolicy                *Policy
+		isIPPool, hasDomainPolicy, noRedirect bool
+	)
+
+	if ip, err := netip.ParseAddr(originHost); err == nil {
+		ipPolicy, _ = c.getIPPolicy(ip)
+		if ipPolicy != nil {
+			policy = mergePolicies(ipPolicy, policy)
+		}
+		var err error
+		finalDst, isIPPool, err = preMapIP(ip, &policy.MapTo)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		domainPolicy, hasDomainPolicy = c.domainMatcher.Find(originHost)
+		if hasDomainPolicy {
+			policy = mergePolicies(domainPolicy, policy)
+		}
+		host := &policy.Host
+		if host.IsMulti() {
+			finalDst = host
+			goto brk
+		}
+		var single string
+		single, noRedirect = stripNoRedirectPrefix(host.Single())
+		if host.IsZero() || single == "" {
+			if hostFromHosts, ok := c.hostsMatcher.Find(originHost); ok {
+				if hostFromHosts.IsMulti() {
+					finalDst = hostFromHosts
+					goto brk
+				}
+				single, noRedirect = stripNoRedirectPrefix(hostFromHosts.Single())
+			}
+		}
+		switch {
+		case single == "self" || single == "":
+			finalDst = dial.NewSingleDst(originHost)
+		case strings.HasPrefix(single, resolvePrefix):
+			finalDst = dial.NewSingleDst(single[1:])
+		case strings.HasPrefix(single, ipPoolTagPrefix):
+			isIPPool = true
+			finalDst = dial.NewSingleDst(single)
+		default:
+			ip, err := netip.ParseAddr(single)
+			if err != nil {
+				finalDst = dial.NewSingleDst(single)
+				goto brk
+			}
+			ipPolicy, _ = c.getIPPolicy(ip)
+			if ipPolicy == nil {
+				finalDst = dial.NewSingleDst(single)
+				goto brk
+			}
+			if ipPolicy.MapTo.IsMulti() {
+				finalDst = &ipPolicy.MapTo
+				goto brk
+			}
+			finalDst, isIPPool, err = preMapIP(ip, &ipPolicy.MapTo)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+brk:
+	if policy.Mode == ModeBlock || policy.Mode == ModeTLSAlert {
+		return nil, E.New("DoH policy mode cannot be block or tls-alert")
+	}
+	if policy.Port != 0 && policy.Port != unsetInt {
+		dstPort = F.Int(policy.Port)
+	}
+
+	if !isIPPool {
+		return func(ctx context.Context, network, _ string) (net.Conn, error) {
+			conn, err := dial.DialTimeoutMulti(ctx, network, finalDst, dstPort, policy.ConnectTimeout, policy.DialDelay)
+			if err != nil {
+				return nil, err
+			}
+			return &policyConn{Conn: conn, core: c, policy: policy}, nil
+		}, nil
+	}
+	tag := finalDst.Single()[1:]
+	pool, err := c.getIPPool(tag)
+	if err != nil {
+		return nil, err
+	}
+	if noRedirect || pool.multi {
+		return func(ctx context.Context, network, _ string) (net.Conn, error) {
+			conn, err := dial.DialTimeoutMulti(ctx, network, pool.Get(), dstPort, policy.ConnectTimeout, policy.DialDelay)
+			if err != nil {
+				return nil, err
+			}
+			return &policyConn{Conn: conn, core: c, policy: policy}, nil
+		}, nil
+	}
+	return func(ctx context.Context, network, _ string) (net.Conn, error) {
+		final, ipPolicy, err := c.ipRedirect(nil, pool.Get().Single())
+		if err != nil {
+			return nil, E.WithStr("ip redirect", err)
+		}
+		var p *Policy
+		if hasDomainPolicy {
+			p = mergePolicies(domainPolicy, ipPolicy, &c.defaultPolicy)
+		} else {
+			p = mergePolicies(ipPolicy, &c.defaultPolicy)
+		}
+		var port string
+		if p.Port != 0 && p.Port != unsetInt {
+			port = F.Int(p.Port)
+		} else {
+			port = dstPort
+		}
+		conn, err := dial.DialTimeoutMulti(ctx, network, final, port, p.ConnectTimeout, p.DialDelay)
+		if err != nil {
+			return nil, err
+		}
+		return &policyConn{Conn: conn, core: c, policy: p}, nil
+	}, nil
+}
+
+func preMapIP(ip netip.Addr, mapTo *dial.Dst) (final *dial.Dst, isIPPool bool, err error) {
+	if mapTo.IsZero() {
+		return nil, false, nil
+	}
+	if mapTo.IsMulti() {
+		return mapTo, false, nil
+	}
+	single := mapTo.Single()
+	switch {
+	case strings.HasPrefix(single, ipPoolTagPrefix):
+		return mapTo, true, nil
+	case strings.LastIndexByte(single, '/') != -1:
+		single, err = transformIP(ip, single)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+	return mapTo, false, nil
 }
 
 func stripNoRedirectPrefix(s string) (string, bool) {
@@ -720,7 +871,7 @@ func (c *Core) genPolicy(
 			logPrefix = "Host (from hosts): "
 		}
 		if strings.HasPrefix(single, ipPoolTagPrefix) {
-			cur, err := c.getFromIPPool(single[1:])
+			cur, err := c.getDstFromIPPool(single[1:])
 			if err != nil {
 				logger.Error(err)
 				return nil, nil, true, false, false
@@ -781,7 +932,7 @@ func (c *Core) ipRedirect(logger log.Logger, host string) (*dial.Dst, *Policy, e
 		return dial.NewSingleDst(host), policy, nil
 	}
 	if strings.HasPrefix(mapTo, ipPoolTagPrefix) {
-		cur, err := c.getFromIPPool(mapTo[1:])
+		cur, err := c.getDstFromIPPool(mapTo[1:])
 		if err != nil {
 			return nil, nil, err
 		}
