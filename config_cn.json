@@ -158,7 +158,7 @@
       "map_to": "$vercel",
       "num_records": 1,
       "num_segs": 3,
-      "oob": true
+      //"oob": true
     },
     "(151.101|146.75|199.232).0.0/16": {
       "map_to": "146.75.48.0/22"
@@ -186,6 +186,12 @@
       "mode":"tls-rf",
       "num_records": 1,
       "num_segs": 3
+    },
+    "v2.hysteria.network": {
+      "num_records": 1
+    },
+    "*.github(assets|usercontent).com": {
+      "dns_mode": "multi_prefer_ipv4"
     },
     "*bing.(com|net);*microsoft(|online).com;*(live|msn|skype).com;*office.(com|net);*(mozilla.com|mozilla.net|mozilla.org|firefox.com|firefox.com.cn|mozgcp.net)": {
       "mode": "raw",
