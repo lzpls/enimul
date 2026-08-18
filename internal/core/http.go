@@ -47,7 +47,7 @@ func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 		return
 	}
 
-	logger := newLogger("H[00000]")
+	logger := c.newLogger("H[00000]")
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		logger.Error("Failed to start HTTP proxy server: ", err)
@@ -60,7 +60,7 @@ func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 }
 
 func (c *Core) httpHandler(w http.ResponseWriter, req *http.Request) {
-	logger := newLogger(F.ConnIDToHex5("H", getHTTPConnID()))
+	logger := c.newLogger(F.ConnIDToHex5("H", getHTTPConnID()))
 	logger.Info(req.RemoteAddr, " - \"", req.Method, " ", req.RequestURI, " ", req.Proto, "\"")
 
 	if req.Method == http.MethodConnect {

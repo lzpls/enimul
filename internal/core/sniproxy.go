@@ -19,7 +19,7 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 		return
 	}
 
-	logger := newLogger("SP[00000]")
+	logger := c.newLogger("SP[00000]")
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		logger.Error("Failed to start SNI proxy server: ", err)
@@ -61,7 +61,7 @@ func (c *Core) handleTunnelSNI(conn net.Conn, connID uint32, port string) {
 		}
 	}()
 
-	logger := newLogger(F.ConnIDToHex5("SP", connID))
+	logger := c.newLogger(F.ConnIDToHex5("SP", connID))
 	logger.Info("Connection from ", conn.RemoteAddr())
 
 	br := bufio.NewReader(conn)

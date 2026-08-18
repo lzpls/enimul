@@ -53,20 +53,20 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 		return anErr("decode config", err)
 	}
 
-	if err := setLogOutput(conf.LogOutput); err != nil {
+	if err := c.setLogOutput(conf.LogOutput); err != nil {
 		return anErr("set log output", err)
 	}
-	logLevel = conf.LogLevel
+	c.logLevel = conf.LogLevel
 
 	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
 		return anErr("set local address", err)
 	}
-	dial.SetLogger(newLogger("[dial]"))
+	dial.SetLogger(c.newLogger("[dial]"))
 
 	if conf.IPPools.Len() > 0 {
 		c.ipPools = &conf.IPPools
 		for tag, pool := range c.ipPools.All() {
-			pool.Init(newLogger("P[" + tag + "]"))
+			pool.Init(c.newLogger("P[" + tag + "]"))
 		}
 	}
 

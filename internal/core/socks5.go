@@ -35,7 +35,7 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 		return
 	}
 
-	logger := newLogger("S[00000]")
+	logger := c.newLogger("S[00000]")
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		logger.Error("Failed to start SOCKS5 server: ", err)
@@ -78,7 +78,7 @@ func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
 }
 
 func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
-	logger := newLogger(F.ConnIDToHex5("S", id))
+	logger := c.newLogger(F.ConnIDToHex5("S", id))
 	logger.Info("Connection from ", cliConn.RemoteAddr())
 
 	var (
