@@ -35,7 +35,7 @@ type TTLProbingConfig struct {
 
 func buildHashFunc[K comparable]() freelru.HashKeyCallback[K] {
 	seed := maphash.MakeSeed()
-	return func(k K) uint64 { return maphash.Comparable(seed, k) }
+	return func(k K) uint32 { return uint32(maphash.Comparable(seed, k)) }
 }
 
 func (c *Core) setTTLProbing(conf TTLProbingConfig) error {

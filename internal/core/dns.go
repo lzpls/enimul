@@ -154,7 +154,8 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			conf.CacheCapacity = 4096
 		}
 		var err error
-		c.dns.cache, err = freelru.NewSharded[string, *dial.Dst](conf.CacheCapacity, xxhash.Sum64String)
+		hashFunc := func(s string) uint32 { return uint32(xxhash.Sum64String(s)) }
+		c.dns.cache, err = freelru.NewSharded[string, *dial.Dst](conf.CacheCapacity, hashFunc)
 		if err != nil {
 			return E.WithStr("init DNS cache", err)
 		}

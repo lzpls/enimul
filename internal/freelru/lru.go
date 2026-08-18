@@ -32,7 +32,7 @@ import (
 type OnEvictCallback[K comparable, V any] func(K, V)
 
 // HashKeyCallback is the function that creates a hash from the passed key.
-type HashKeyCallback[K comparable] func(K) uint64
+type HashKeyCallback[K comparable] func(K) uint32
 
 type element[K comparable, V any] struct {
 	key   K
@@ -166,21 +166,20 @@ func initLRU[K comparable, V any](lru *LRU[K, V], capacity, size uint32, hash Ha
 }
 
 // hashToBucketPos converts a hash value into a position in the elements array.
-func (lru *LRU[K, V]) hashToBucketPos(hash uint64) uint32 {
-	/*if lru.mask != 0 {
+func (lru *LRU[K, V]) hashToBucketPos(hash uint32) uint32 {
+	if lru.mask != 0 {
 		return hash & lru.mask
-	}*/
-	return uint32(fastRange(hash, uint64(lru.size)))
+	}
+	return fastRange(hash, lru.size)
 }
 
 // See https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
-func fastRange(x, n uint64) uint64 {
-	hi, _ := bits.Mul64(x, n)
-	return hi
+func fastRange(x, n uint32) uint32 {
+	return uint32((uint64(x) * uint64(n)) >> 32)
 }
 
 // hashToPos converts a key into a position in the elements array.
-func (lru *LRU[K, V]) hashToPos(hash uint64) (bucketPos, elemPos uint32) {
+func (lru *LRU[K, V]) hashToPos(hash uint32) (bucketPos, elemPos uint32) {
 	bucketPos = lru.hashToBucketPos(hash)
 	elemPos = lru.buckets[bucketPos]
 	return
@@ -303,7 +302,7 @@ func (lru *LRU[K, V]) clearKeyAndValue(pos uint32) {
 	lru.elements[pos].value = lru.emptyValue
 }
 
-func (lru *LRU[K, V]) findKey(hash uint64, key K) (uint32, bool) {
+func (lru *LRU[K, V]) findKey(hash uint32, key K) (uint32, bool) {
 	_, startPos := lru.hashToPos(hash)
 	if startPos == emptyBucket {
 		return emptyBucket, false
@@ -327,7 +326,7 @@ func (lru *LRU[K, V]) findKey(hash uint64, key K) (uint32, bool) {
 	}
 }
 
-/*func (lru *LRU[K, V]) findKeyNoExpire(hash uint64, key K) (uint32, bool) {
+/*func (lru *LRU[K, V]) findKeyNoExpire(hash uint32, key K) (uint32, bool) {
 	_, startPos := lru.hashToPos(hash)
 	if startPos == emptyBucket {
 		return emptyBucket, false
@@ -358,7 +357,7 @@ func (lru *LRU[K, V]) AddWithLifetime(key K, value V, lifetime time.Duration) (e
 	return lru.addWithLifetime(lru.hash(key), key, value, lifetime)
 }
 
-func (lru *LRU[K, V]) addWithLifetime(hash uint64, key K, value V,
+func (lru *LRU[K, V]) addWithLifetime(hash uint32, key K, value V,
 	lifetime time.Duration) (evicted bool) {
 	bucketPos, startPos := lru.hashToPos(hash)
 	if startPos == emptyBucket {
@@ -445,7 +444,7 @@ func (lru *LRU[K, V]) Add(key K, value V) (evicted bool) {
 	return lru.addWithLifetime(lru.hash(key), key, value, lru.lifetime)
 }
 
-func (lru *LRU[K, V]) add(hash uint64, key K, value V) (evicted bool) {
+func (lru *LRU[K, V]) add(hash uint32, key K, value V) (evicted bool) {
 	return lru.addWithLifetime(hash, key, value, lru.lifetime)
 }*/
 
@@ -457,7 +456,7 @@ func (lru *LRU[K, V]) Get(key K) (value V, ok bool) {
 	return lru.get(lru.hash(key), key)
 }
 
-func (lru *LRU[K, V]) get(hash uint64, key K) (value V, ok bool) {
+func (lru *LRU[K, V]) get(hash uint32, key K) (value V, ok bool) {
 	if pos, ok := lru.findKey(hash, key); ok {
 		if pos != lru.head {
 			lru.unlinkElement(pos)
@@ -478,7 +477,7 @@ func (lru *LRU[K, V]) GetAndRefresh(key K, lifetime time.Duration) (V, bool) {
 	return lru.getAndRefresh(lru.hash(key), key, lifetime)
 }
 
-func (lru *LRU[K, V]) getAndRefresh(hash uint64, key K, lifetime time.Duration) (value V, ok bool) {
+func (lru *LRU[K, V]) getAndRefresh(hash uint32, key K, lifetime time.Duration) (value V, ok bool) {
 	if pos, ok := lru.findKeyNoExpire(hash, key); ok {
 		if pos != lru.head {
 			lru.unlinkElement(pos)
@@ -499,7 +498,7 @@ func (lru *LRU[K, V]) getAndRefresh(hash uint64, key K, lifetime time.Duration) 
 	return lru.peek(lru.hash(key), key)
 }
 
-func (lru *LRU[K, V]) peek(hash uint64, key K) (value V, ok bool) {
+func (lru *LRU[K, V]) peek(hash uint32, key K) (value V, ok bool) {
 	if pos, ok := lru.findKey(hash, key); ok {
 		return lru.elements[pos].value, ok
 	}
@@ -514,7 +513,7 @@ func (lru *LRU[K, V]) Contains(key K) (ok bool) {
 	return
 }
 
-func (lru *LRU[K, V]) contains(hash uint64, key K) (ok bool) {
+func (lru *LRU[K, V]) contains(hash uint32, key K) (ok bool) {
 	_, ok = lru.peek(hash, key)
 	return
 }
@@ -526,7 +525,7 @@ func (lru *LRU[K, V]) Remove(key K) (removed bool) {
 	return lru.remove(lru.hash(key), key)
 }
 
-func (lru *LRU[K, V]) remove(hash uint64, key K) (removed bool) {
+func (lru *LRU[K, V]) remove(hash uint32, key K) (removed bool) {
 	if pos, ok := lru.findKeyNoExpire(hash, key); ok {
 		lru.removeAt(pos)
 		return ok
