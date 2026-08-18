@@ -288,9 +288,9 @@ func (m *DNSMode) UnmarshalJSON(data []byte) error {
 	case DNSModeNameIPv6Only:
 		*m = DNSModeIPv6Only
 	case DNSModeNameMultiPreferIPv4:
-		*m = DNSModePreferIPv4
+		*m = DNSModeMultiPreferIPv4
 	case DNSModeNameMultiPreferIPv6:
-		*m = DNSModePreferIPv6
+		*m = DNSModeMultiPreferIPv6
 	case DNSModeNameMultiIPv4Only:
 		*m = DNSModeMultiIPv4Only
 	case DNSModeNameMultiIPv6Only:
