@@ -132,7 +132,11 @@ func DialContextMulti(ctx context.Context, network string, dst *Dst, port string
 	} else {
 		laddr = localIPv4.Load()
 	}
-	return (&net.Dialer{LocalAddr: laddr}).DialContext(ctx, network, raddr)
+	var d net.Dialer
+	if laddr != nil {
+		d.LocalAddr = laddr
+	}
+	return d.DialContext(ctx, network, raddr)
 }
 
 func DialTimeoutMulti(ctx context.Context, network string, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
@@ -156,7 +160,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 	port := uint16(p)
 	if len(addrs) == 1 {
 		ip := addrs[0].Addr().Unmap()
-		return new(net.Dialer).DialTCP(ctx, "tcp", GetLocalAddr(ip.Is6()),  netip.AddrPortFrom(ip, port))
+		return new(net.Dialer).DialTCP(ctx, "tcp", GetLocalAddr(ip.Is6()), netip.AddrPortFrom(ip, port))
 	}
 
 	if dialDelay <= 0 {

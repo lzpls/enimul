@@ -739,7 +739,7 @@ brk:
 
 func preMapIP(ip netip.Addr, mapTo *dial.Dst) (final *dial.Dst, isIPPool bool, err error) {
 	if mapTo.IsZero() {
-		return nil, false, nil
+		return dial.NewSingleDst(ip.String()), false, nil
 	}
 	if mapTo.IsMulti() {
 		return mapTo, false, nil
