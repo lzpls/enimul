@@ -430,7 +430,9 @@ func (p *Policy) String() string {
 		} else {
 			fields = append(fields, "fake_ttl="+F.Int(p.FakeTTL))
 		}
-		fields = append(fields, "fake_sleep="+p.FakeSleep.String())
+		if p.FakeSleep != 0 {
+			fields = append(fields, "fake_sleep="+p.FakeSleep.String())
+		}
 	}
 	return strings.Join(fields, " ")
 }
@@ -438,6 +440,7 @@ func (p *Policy) String() string {
 func mergePolicies(policies ...*Policy) *Policy {
 	merged := Policy{
 		Port:           unsetInt,
+		DialDelay:      unsetInt,
 		HttpStatus:     unsetInt,
 		SendInterval:   unsetInt,
 		FakeTTL:        unsetInt,
