@@ -191,6 +191,7 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 
 func (p *IPPool) Init(logger log.Logger, dialer *dial.Dialer) {
 	p.logger = logger
+	p.dialer = dialer
 	if p.waitScanOnStartUp {
 		p.scan()
 		go p.monitor()
