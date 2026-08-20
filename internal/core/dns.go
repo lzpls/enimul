@@ -142,7 +142,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 		}
 		c.dns.exchange = buildDoHExchangeFunc(&http.Client{Transport: transport}, addr)
 	default:
-		return E.NewAny("unknown dns.type: ", conf.Type)
+		return fmt.Errorf("unknown dns.type: %q", conf.Type)
 	}
 
 	if conf.SingleFlight {

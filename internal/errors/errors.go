@@ -8,9 +8,7 @@ import (
 
 func New(text string) error { return errors.New(text) }
 
-func NewAny(args ...any) error {
-	return New(F.Concat(args...))
-}
+func NewAny(args ...any) error { return New(F.Concat(args...)) }
 
 type opError struct {
 	op  string
