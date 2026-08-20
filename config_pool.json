@@ -46,11 +46,6 @@
       "fallback_ip": "futuregadget-lab.com",
       "multi": true
     },
-    "gws": {
-      "ips": ["173.194.47.90", "192.178.238.90", "192.178.238.90", "172.253.148.90", "192.178.161.253", "142.251.11.253"],
-      "port": 443,
-      "fallback_ip": "173.194.47.90"
-    },
     "netlify": {
       "ips": [
         "52.74.6.109",
@@ -174,7 +169,7 @@
   },
   "domain_policies": {
     "*(google.com|google.com.hk|gmail.com|google.dev|googleapis.com|gstatic.com|googleusercontent.com|.google|goo.gl|translate.goog|android.com|ai.dev|blogger.com|blogspot.com|blogblog.com|chrome.com|chromium.org|golang.org|youtube.com|youtu.be|youtube-nocookie.com|.ytimg.com|.ggpht.com|gvt1.com|withgoogle.com|googlesource.com)": {
-      "host": "^$gws",
+      "host": "^?google.com.c.0.8.0.d.0.0.0.0.7.4.0.1.0.0.2.ip6.arpa",
       "tls13_only": true,
       "http_status": 302
     },

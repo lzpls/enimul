@@ -107,7 +107,7 @@
   },
   "domain_policies": {
     "*(google.com|google.com.hk|gmail.com|google.dev|googleapis.com|gstatic.com|googleusercontent.com|.google|goo.gl|translate.goog|android.com|ai.dev|blogger.com|blogspot.com|blogblog.com|chrome.com|chromium.org|golang.org|youtube.com|youtu.be|youtube-nocookie.com|.ytimg.com|.ggpht.com|gvt1.com|withgoogle.com|googlesource.com)": {
-      "host": "^142.251.149.251",
+      "host": "^?google.com.c.0.8.0.d.0.0.0.0.7.4.0.1.0.0.2.ip6.arpa",
       "tls13_only": true,
       "http_status": 302
     },
