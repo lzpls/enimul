@@ -128,8 +128,12 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		dstConn   net.Conn
 	)
 	defer func() {
-		if closeHere {
-			cliConn.Close()
+		if !closeHere {
+			return
+		}
+		cliConn.Close()
+		if dstConn != nil {
+			dstConn.Close()
 		}
 	}()
 

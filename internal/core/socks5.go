@@ -86,8 +86,12 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 		dstConn   net.Conn
 	)
 	defer func() {
-		if closeHere {
-			cliConn.Close()
+		if !closeHere {
+			return
+		}
+		cliConn.Close()
+		if dstConn != nil {
+			dstConn.Close()
 		}
 	}()
 
