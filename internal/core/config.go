@@ -9,9 +9,9 @@ import (
 	"github.com/lzpls/enimul/internal/addrtrie"
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
+	"github.com/lzpls/enimul/internal/jsonc"
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/orderedmap"
-	"github.com/lzpls/enimul/internal/jsonc"
 )
 
 type Config struct {
@@ -48,20 +48,20 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 		return anErr("decode config", err)
 	}
 
-	if err := c.setLogOutput(conf.LogOutput); err != nil {
+	if err = c.setLogOutput(conf.LogOutput); err != nil {
 		return anErr("set log output", err)
 	}
 	c.logLevel = conf.LogLevel
 
-	if err = dial.SetLocalAddr(conf.OutboundBinding); err != nil {
-		return anErr("set local address", err)
+	c.dialer, err = dial.NewDialer(c.newLogger("[dial]"), conf.OutboundBinding)
+	if err != nil {
+		return anErr("create dialer", err)
 	}
-	dial.SetLogger(c.newLogger("[dial]"))
 
 	if conf.IPPools.Len() > 0 {
 		c.ipPools = &conf.IPPools
 		for tag, pool := range c.ipPools.All() {
-			pool.Init(c.newLogger("P[" + tag + "]"))
+			pool.Init(c.newLogger("P["+tag+"]"), c.dialer)
 		}
 	}
 

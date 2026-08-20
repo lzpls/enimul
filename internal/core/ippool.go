@@ -32,6 +32,7 @@ const (
 
 type IPPool struct {
 	logger log.Logger
+	dialer *dial.Dialer
 
 	waitScanOnStartUp bool
 	multi             bool
@@ -188,7 +189,7 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 	return ips, nil
 }
 
-func (p *IPPool) Init(logger log.Logger) {
+func (p *IPPool) Init(logger log.Logger, dialer *dial.Dialer) {
 	p.logger = logger
 	if p.waitScanOnStartUp {
 		p.scan()
@@ -250,7 +251,7 @@ func (p *IPPool) testIP(index int) (time.Duration, float64) {
 
 	for range p.attempts {
 		start := time.Now()
-		conn, err := dialer.DialTCP(context.Background(), "tcp", dial.GetLocalAddr(isIPv6), raddr)
+		conn, err := dialer.DialTCP(context.Background(), "tcp", p.dialer.GetLocalAddr(isIPv6), raddr)
 		if err != nil {
 			continue
 		}

@@ -20,6 +20,7 @@ const Version = "v0.4.0-alpha.7"
 type Core struct {
 	logLevel      log.Level
 	logOutput     io.Writer
+	dialer        *dial.Dialer
 	dns           dnsFields
 	ttl           ttlProbingFields
 	ipPools       *orderedmap.Map[*IPPool]

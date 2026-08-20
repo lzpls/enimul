@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/freelru"
@@ -222,7 +221,7 @@ func (c *Core) probeMinimumReachableTTL(
 		}
 		var ok bool
 		for range attempts {
-			conn, err := dialer.DialTCP(context.Background(), "tcp", dial.GetLocalAddr(isIPv6), raddr)
+			conn, err := dialer.DialTCP(context.Background(), "tcp", c.dialer.GetLocalAddr(isIPv6), raddr)
 			if err == nil {
 				conn.Close()
 				ok = true
