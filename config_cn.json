@@ -34,10 +34,10 @@
   },
   "ip_pools": {
     "cloudflare": {
-      "ips": ["enimul.cf.090227.xyz", "www.visa.cn", "time.is", "mfa.gov.ua"],
+      "ips": ["enimul.cf.090227.xyz"],
       "port": 443,
       "wait_scan_on_startup": true,
-      "fallback_ip": "enimul.cf.090227.xyz",
+      "fallback_ip": "fb.cf.090227.xyz",
       "multi": true
     },
     "cloudfront": {
