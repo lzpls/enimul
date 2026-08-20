@@ -6,7 +6,6 @@ import (
 	"maps"
 	"net"
 	"net/http"
-	"sync/atomic"
 
 	"github.com/lzpls/enimul/internal/dial"
 	F "github.com/lzpls/enimul/internal/fmt"
@@ -19,19 +18,17 @@ const (
 	status502 = "502 Bad Gateway"
 )
 
-var httpConnID atomic.Uint32
-
-func getHTTPConnID() uint32 {
-again:
-	old := httpConnID.Load()
-	new := old + 1
-	if new > maxConnID {
-		new = 1
+func (c *Core) getHTTPConnID() uint32 {
+	for {
+		old := c.httpConnID.Load()
+		new := old + 1
+		if new > maxConnID {
+			new = 1
+		}
+		if c.httpConnID.CompareAndSwap(old, new) {
+			return new
+		}
 	}
-	if httpConnID.CompareAndSwap(old, new) {
-		return new
-	}
-	goto again
 }
 
 func (c *Core) HTTPServe(cmdAddr, configAddr string) {
@@ -60,7 +57,7 @@ func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 }
 
 func (c *Core) httpHandler(w http.ResponseWriter, req *http.Request) {
-	logger := c.newLogger(F.ConnIDToHex5("H", getHTTPConnID()))
+	logger := c.newLogger(F.ConnIDToHex5("H", c.getHTTPConnID()))
 	logger.Info(req.RemoteAddr, " - \"", req.Method, " ", req.RequestURI, " ", req.Proto, "\"")
 
 	if req.Method == http.MethodConnect {

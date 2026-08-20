@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/lzpls/enimul/internal/addrtrie"
@@ -27,6 +28,7 @@ type Core struct {
 	domainMatcher *addrtrie.DomainMatcher[*Policy]
 	ipv4Matcher   *addrtrie.IPv4Trie[*Policy]
 	ipv6Matcher   *addrtrie.IPv6Trie[*Policy]
+	httpConnID    atomic.Uint32
 }
 
 func (c *Core) setLogOutput(out string) error {
