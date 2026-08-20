@@ -83,7 +83,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 
 	originHost, originPort, err := net.SplitHostPort(oldDest)
 	if err != nil {
-		logger.Error("Split ", oldDest, ": ", err)
+		logger.Error("Split ", oldDest, " failed: ", err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		return
 	}
 	if blocked {
-		logger.Info("Connection blocked")
+		logger.Info("Connection blocked: ", originHost)
 		http.Error(w, status403, http.StatusForbidden)
 		return
 	}
@@ -195,7 +195,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 		return
 	}
 	if blocked {
-		logger.Info("Connection blocked")
+		logger.Info("Connection blocked: ", originHost)
 		http.Error(w, status403, http.StatusForbidden)
 		return
 	}
