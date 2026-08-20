@@ -126,10 +126,14 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		}
 	}
 
+	if tmp.FallbackIP.IsZero() {
+		return E.New("fallback_ip cannot be empty")
+	}
+	p.fallbackIP = tmp.FallbackIP
+
 	p.waitScanOnStartUp = tmp.WaitScanOnStartUp
 	p.multi = tmp.Multi
 	p.ips = ips
-	p.fallbackIP = tmp.FallbackIP
 	p.port = uint16(tmp.Port)
 	p.topIPCount = uint8(topCount)
 	p.attempts = uint8(attempts)
@@ -149,7 +153,7 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 				return nil, fmt.Errorf("IP pool exceeds maximum size (%d) during parsing", maxIPPoolSize)
 			}
 			if addr, err := netip.ParseAddr(s); err == nil && addr.IsValid() {
-				ips = append(ips, addr)
+				ips = append(ips, addr.Unmap())
 				continue
 			}
 			if prefix, err := netip.ParsePrefix(s); err == nil {
@@ -158,7 +162,7 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 					if len(ips) >= maxIPPoolSize {
 						return nil, fmt.Errorf("CIDR %s exceeds max pool size (%d)", s, maxIPPoolSize)
 					}
-					ips = append(ips, addr)
+					ips = append(ips, addr.Unmap())
 					next := addr.Next()
 					if !next.IsValid() || !prefix.Contains(next) {
 						break
@@ -176,7 +180,7 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 					if len(ips) >= maxIPPoolSize {
 						return nil, fmt.Errorf("DNS resolution for %s exceeds max pool size", s)
 					}
-					ips = append(ips, addr)
+					ips = append(ips, addr.Unmap())
 				}
 			}
 		}
@@ -239,13 +243,14 @@ func (p *IPPool) testIP(index int) (time.Duration, float64) {
 		successCount int64
 		totalLatency time.Duration
 	)
-	dialer := dial.NewDialer(p.ips[index].Unmap().Is6())
-	dialer.Timeout = p.timeout
-	addr := netip.AddrPortFrom(p.ips[index], p.port)
+	ip := p.ips[index]
+	isIPv6 := ip.Is6()
+	dialer := net.Dialer{Timeout: p.timeout}
+	raddr := netip.AddrPortFrom(ip, p.port)
 
 	for range p.attempts {
 		start := time.Now()
-		conn, err := dialer.DialTCP(context.Background(), "tcp", netip.AddrPort{}, addr)
+		conn, err := dialer.DialTCP(context.Background(), "tcp", dial.GetLocalAddr(isIPv6), raddr)
 		if err != nil {
 			continue
 		}

@@ -126,7 +126,13 @@ func DialContextMulti(ctx context.Context, network string, dst *Dst, port string
 		return dialParallel(ctx, dst.multi, port, dialDelay)
 	}
 	raddr := net.JoinHostPort(dst.single, port)
-	return NewDialer(raddr[0] == '[').DialContext(ctx, network, raddr)
+	var laddr *net.TCPAddr
+	if raddr[0] == '[' {
+		laddr = localIPv6.Load()
+	} else {
+		laddr = localIPv4.Load()
+	}
+	return (&net.Dialer{LocalAddr: laddr}).DialContext(ctx, network, raddr)
 }
 
 func DialTimeoutMulti(ctx context.Context, network string, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
@@ -140,19 +146,18 @@ func DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay
 }
 
 func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (net.Conn, error) {
-	switch len(addrs) {
-	case 0:
+	if len(addrs) == 0 {
 		return nil, E.New("no addresses to dial")
-	case 1:
-		raddr := addrs[0]
-		return NewDialer(addrportIs6(raddr)).DialTCP(ctx, "tcp", netip.AddrPort{}, raddr)
 	}
-
 	p, err := strconv.ParseUint(portStr, 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("invalid port %q: %w", portStr, err)
 	}
 	port := uint16(p)
+	if len(addrs) == 1 {
+		ip := addrs[0].Addr().Unmap()
+		return new(net.Dialer).DialTCP(ctx, "tcp", GetLocalAddr(ip.Is6()),  netip.AddrPortFrom(ip, port))
+	}
 
 	if dialDelay <= 0 {
 		dialDelay = defaultDialDelay
@@ -195,8 +200,7 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 				if addr.Port() == 0 {
 					addr = netip.AddrPortFrom(ip, port)
 				}
-				laddr := GetLocalAddr(ip.Is6()).AddrPort()
-				conn, err := dialer.DialTCP(dialCtx, "tcp", laddr, addr)
+				conn, err := dialer.DialTCP(dialCtx, "tcp", GetLocalAddr(ip.Is6()), addr)
 
 				if err != nil {
 					currFailed <- struct{}{}
@@ -238,5 +242,3 @@ func dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, d
 	}
 	return nil, E.Join(errs...)
 }
-
-func addrportIs6(ap netip.AddrPort) bool { return ap.Addr().Unmap().Is6() }

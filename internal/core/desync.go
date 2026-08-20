@@ -193,7 +193,7 @@ func ttlLevelOption(isIPv6 bool) (int, int) {
 }
 
 func (c *Core) probeMinimumReachableTTL(
-	addr netip.AddrPort,
+	raddr netip.AddrPort,
 	maxTTL, attempts int,
 	dialTimeout, cacheTTL time.Duration,
 ) (int, error) {
@@ -201,11 +201,10 @@ func (c *Core) probeMinimumReachableTTL(
 		Timeout() bool
 	}
 
-	ip := addr.Addr().Unmap()
+	ip := raddr.Addr().Unmap()
 	isIPv6 := ip.Is6()
 	level, opt := ttlLevelOption(isIPv6)
-	dialer := dial.NewDialer(isIPv6)
-	dialer.Timeout = dialTimeout
+	dialer := net.Dialer{Timeout: dialTimeout}
 
 	low, high := 1, maxTTL
 	found := -1
@@ -223,7 +222,7 @@ func (c *Core) probeMinimumReachableTTL(
 		}
 		var ok bool
 		for range attempts {
-			conn, err := dialer.DialTCP(context.Background(), "tcp", netip.AddrPort{}, addr)
+			conn, err := dialer.DialTCP(context.Background(), "tcp", dial.GetLocalAddr(isIPv6), raddr)
 			if err == nil {
 				conn.Close()
 				ok = true

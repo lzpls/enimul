@@ -1,9 +1,9 @@
 package dial
 
 import (
-	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"sync/atomic"
 	"time"
@@ -16,32 +16,11 @@ var (
 	localIPv6 atomic.Pointer[net.TCPAddr]
 )
 
-func GetLocalAddr(isIPv6 bool) *net.TCPAddr {
+func GetLocalAddr(isIPv6 bool) netip.AddrPort {
 	if isIPv6 {
-		return localIPv6.Load()
+		return localIPv6.Load().AddrPort()
 	}
-	return localIPv4.Load()
-}
-
-func NewDialer(isIPv6 bool) *net.Dialer {
-	if addr := GetLocalAddr(isIPv6); addr != nil {
-		return &net.Dialer{LocalAddr: addr}
-	}
-	return new(net.Dialer)
-}
-
-func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	return NewDialer(address[0] == '[').DialContext(ctx, network, address)
-}
-
-func DialTimeout(ctx context.Context, network, address string, timeout time.Duration) (net.Conn, error) {
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	return DialContext(timeoutCtx, network, address)
-}
-
-func DialTCPTimeout(address string, timeout time.Duration) (net.Conn, error) {
-	return DialTimeout(context.Background(), "tcp", address, timeout)
+	return localIPv4.Load().AddrPort()
 }
 
 type monitor = func() (ipv4 net.IP, ipv6 net.IP, zone string, err error)
