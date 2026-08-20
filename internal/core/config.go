@@ -11,8 +11,7 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/orderedmap"
-
-	"github.com/tailscale/hujson"
+	"github.com/lzpls/enimul/internal/jsonc"
 )
 
 type Config struct {
@@ -40,11 +39,7 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 	if err != nil {
 		return anErr("read config", err)
 	}
-	data, err = hujson.Standardize(data)
-	if err != nil {
-		return anErr("standardize config", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder := json.NewDecoder(bytes.NewReader(jsonc.ToJSONInPlace(data)))
 	if disallowUnknownFields {
 		decoder.DisallowUnknownFields()
 	}
