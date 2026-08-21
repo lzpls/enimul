@@ -19,7 +19,6 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/miekg/dns"
-	"golang.org/x/net/proxy"
 )
 
 type DNSClient interface {
@@ -49,7 +48,7 @@ type DNSConfig struct {
 	WaitTimeout   string `json:"wait_timeout"`
 	MinRTT        string `json:"min_rtt"`
 
-	DoHSocks5Addr string `json:"doh_socks5_addr"`
+	DoHOutbound string `json:"doh_outbound"`
 }
 
 func (c *Core) setDNS(conf DNSConfig) error {
@@ -125,20 +124,29 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			return fmt.Errorf("invalid DoH URL %q: %w", addr, err)
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
-		if conf.DoHSocks5Addr == "" {
-			var err error
+		switch conf.DoHOutbound {
+		case "", "policy": // default
+			transport.Proxy = nil
 			transport.DialContext, err = c.genDoHDialFunc(dohURL)
 			if err != nil {
 				return E.WithStr("generate DoH dial function", err)
 			}
-		} else {
-			dialer, err := proxy.SOCKS5("tcp", conf.DoHSocks5Addr, nil, proxy.Direct)
+		case "direct":
+			transport.Proxy = nil
+		case "env":
+		default:
+			proxyURL, err := url.Parse(conf.DoHOutbound)
 			if err != nil {
-				return E.WithStr("create socks5 dialer", err)
+				return err
 			}
-			transport.DialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
-				return dialer.Dial(network, addr)
+			switch proxyURL.Scheme {
+			case "http", "https", "socks5", "socks5h":
+			case "":
+				return E.New("proxy url scheme cannot be empty")
+			default:
+				return fmt.Errorf("invalid proxy url scheme: %q", proxyURL.Scheme)
 			}
+			transport.Proxy = http.ProxyURL(proxyURL)
 		}
 		c.dns.exchange = buildDoHExchangeFunc(&http.Client{Transport: transport}, addr)
 	default:
