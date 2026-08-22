@@ -166,8 +166,8 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 			logger.Error("Read domain length: ", err)
 			return
 		}
-		if lenByte[0] > 253 {
-			logger.Error("Domain length too long: ", lenByte[0])
+		if lenByte[0] == 0 || lenByte[0] > 253 {
+			logger.Error("Invalid domain length: ", lenByte[0])
 			return
 		}
 		domainBytes, err := readN(cliConn, buf[:lenByte[0]])
