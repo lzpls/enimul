@@ -130,11 +130,16 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 	if tmp.FallbackIP.IsZero() {
 		return E.New("fallback_ip cannot be empty")
 	}
-	if !tmp.FallbackIP.IsMulti() ||
-		strings.HasPrefix(tmp.FallbackIP.Single(), resolvePrefix) ||
-		strings.HasPrefix(tmp.FallbackIP.Single(), noRedirectPrefix) ||
-		strings.HasPrefix(tmp.FallbackIP.Single(), ipPoolTagPrefix) {
-		return fmt.Errorf("invalid fallback_ip: %q", tmp.FallbackIP.Single())
+	if !tmp.FallbackIP.IsMulti() {
+		single := tmp.FallbackIP.Single()
+		if single == "" {
+			return E.New("fallback_ip cannot be empty")
+		}
+		switch single[:1] {
+		case resolvePrefix, noRedirectPrefix, ipPoolTagPrefix:
+		default:
+			return fmt.Errorf("invalid fallback_ip: %q", tmp.FallbackIP.Single())
+		}
 	}
 	p.fallbackIP = tmp.FallbackIP
 
