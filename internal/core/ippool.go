@@ -137,7 +137,6 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		}
 		switch single[:1] {
 		case resolvePrefix, noRedirectPrefix, ipPoolTagPrefix:
-		default:
 			return fmt.Errorf("invalid fallback_ip: %q", tmp.FallbackIP.Single())
 		}
 	}
