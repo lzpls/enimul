@@ -258,8 +258,8 @@
     "*.googlevideo.com": {
       "dns_mode": "prefer_ipv6"
     },
-    "(skyapi.|)onedrive.live.com;*(disk.yandex.com|vercel.app)": {
-      "mode": "tls-rf",
+    "(skyapi.|)onedrive.live.com;onedrive.com;1drv.ms;*(disk.yandex.com|vercel.app)": {
+      "mode":"tls-rf",
       "num_records": 1,
       "num_segs": 3
     },
