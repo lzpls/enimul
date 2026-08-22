@@ -31,5 +31,6 @@ func Err(args ...any) {
 	*bufp = time.Now().AppendFormat(*bufp, defaultTimeFormat)
 	*bufp = append(*bufp, ' ')
 	*bufp = F.Append(*bufp, args...)
+	*bufp = append(*bufp, '\n')
 	os.Stderr.Write(*bufp)
 }
