@@ -139,8 +139,13 @@ func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portS
 		}
 	}()
 
-	if conn, ok := <-connCh; ok {
-		return conn, nil
+	select {
+	case conn, ok := <-connCh:
+		if ok {
+			return conn, nil
+		}
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 
 	if err := ctx.Err(); err != nil {
