@@ -15,7 +15,7 @@ import (
 	_ "github.com/lzpls/enimul/internal/platform"
 )
 
-const Version = "v0.4.0-alpha.7"
+const Version = "v0.4.0-alpha.8"
 
 type Core struct {
 	logLevel      log.Level
