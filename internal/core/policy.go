@@ -726,6 +726,10 @@ brk:
 		} else {
 			p = mergePolicies(ipPolicy, &c.defaultPolicy)
 		}
+		switch p.Mode {
+		case ModeBlock, ModeTLSAlert:
+			return nil, E.New("connection blocked by policy")
+		}
 		var port string
 		if p.Port != 0 && p.Port != unsetInt {
 			port = F.Int(p.Port)
