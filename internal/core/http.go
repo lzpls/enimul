@@ -180,12 +180,9 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 
 	host := originReq.URL.Host
 	if host == "" {
-		host = originReq.URL.Host
-		if host == "" {
-			logger.Error("Cannot determine target host")
-			http.Error(w, "400 Bad Request", http.StatusBadRequest)
-			return
-		}
+		logger.Error("Cannot determine target host")
+		http.Error(w, "400 Bad Request", http.StatusBadRequest)
+		return
 	}
 
 	originHost, port, err := net.SplitHostPort(host)
