@@ -17,6 +17,10 @@ const (
 	status502 = "502 Bad Gateway"
 )
 
+var defaultHTTPTransport = http.DefaultTransport.(*http.Transport)
+
+func init() { defaultHTTPTransport.Proxy = nil }
+
 func (c *Core) getHTTPConnID() uint32 {
 	for {
 		old := c.httpConnID.Load()
@@ -169,7 +173,12 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 }
 
 func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *http.Request) {
-	host := originReq.Host
+	if originReq.URL.Scheme != "http" {
+		logger.Error("Invalid URL scheme: ", originReq)
+		return
+	}
+
+	host := originReq.URL.Host
 	if host == "" {
 		host = originReq.URL.Host
 		if host == "" {
@@ -182,11 +191,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 	originHost, port, err := net.SplitHostPort(host)
 	if err != nil {
 		originHost = host
-		if originReq.URL.Scheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
+		port = "80"
 	}
 
 	dstHost, p, failed, blocked, _ := c.genPolicy(logger, originHost, false, false)
@@ -202,11 +207,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 
 	if p.HttpStatus != 0 && p.HttpStatus != unsetInt {
 		if p.HttpStatus == 301 || p.HttpStatus == 302 {
-			scheme := originReq.URL.Scheme
-			if scheme == "" {
-				scheme = "https"
-			}
-			location := scheme + "://" + host + originReq.URL.RequestURI()
+			location := "https://" + host + originReq.URL.RequestURI()
 			w.Header().Set("Location", location)
 		}
 		w.WriteHeader(p.HttpStatus)
@@ -220,30 +221,25 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 	}
 
 	outReq := originReq.Clone(context.Background())
-	outReq.URL.Host = originReq.URL.Host
 	outReq.Host = originReq.Host
 
-	if outReq.URL.Scheme == "" {
-		outReq.URL.Scheme = "http"
-	}
-
+	outReq.Header.Del("Connection")
+	outReq.Header.Del("Keep-Alive")
 	outReq.Header.Del("Proxy-Authorization")
 	outReq.Header.Del("Proxy-Connection")
-	if outReq.Header.Get("Connection") == "" {
-		outReq.Header.Set("Connection", "close")
-	}
+	outReq.Header.Del("TE")
+	outReq.Header.Del("Trailer")
+	outReq.Header.Del("Transfer-Encoding")
+	outReq.Header.Del("Upgrade")
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-
-	if p.ConnectTimeout > 0 {
-		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return c.dialer.DialTimeoutMulti(ctx, network, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
-		}
+	transport := defaultHTTPTransport.Clone()
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return c.dialer.DialTimeoutMulti(ctx, network, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
 	}
 
 	resp, err := transport.RoundTrip(outReq)
 	if err != nil {
-		logger.Error("Transport: ", err)
+		logger.Error("RoundTrip failed: ", err)
 		http.Error(w, status502, http.StatusBadGateway)
 		return
 	}
@@ -252,7 +248,6 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 
 	maps.Copy(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
-
 	if _, err = io.Copy(w, resp.Body); err != nil {
 		logger.Error("Copy response body: ", err)
 	}
