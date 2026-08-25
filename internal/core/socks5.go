@@ -78,22 +78,15 @@ func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
 }
 
 func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
-	logger := c.newLogger(F.ConnIDToHex5("S", id))
-	logger.Info("Connection from ", cliConn.RemoteAddr())
-
-	var (
-		closeHere = true
-		dstConn   net.Conn
-	)
+	closeHere := true
 	defer func() {
-		if !closeHere {
-			return
-		}
-		cliConn.Close()
-		if dstConn != nil {
-			dstConn.Close()
+		if closeHere {
+			cliConn.Close()
 		}
 	}()
+
+	logger := c.newLogger(F.ConnIDToHex5("S", id))
+	logger.Info("Connection from ", cliConn.RemoteAddr())
 
 	var headerBuf [2]byte
 	header, err := readN(cliConn, headerBuf[:])
@@ -207,14 +200,20 @@ func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
 		dstPort = uint16(policy.Port)
 	}
 
+	var dstConn *net.TCPConn
 	port := F.Uint(dstPort)
-	if policy.ReplyFirst != BoolTrue {
+	if !policy.ReplyFirst.IsTrue() {
 		dstConn, err = c.dialer.DialTCPTimeoutMulti(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)
 			return
 		}
+		defer func() {
+			if closeHere {
+				dstConn.Close()
+			}
+		}()
 	}
 	if !sendReply(logger, cliConn, socks5ReplySuccess) {
 		return

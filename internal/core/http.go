@@ -126,22 +126,15 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
 	}
-
-	var (
-		closeHere = true
-		dstConn   net.Conn
-	)
+	closeHere := true
 	defer func() {
-		if !closeHere {
-			return
-		}
-		cliConn.Close()
-		if dstConn != nil {
-			dstConn.Close()
+		if closeHere {
+			cliConn.Close()
 		}
 	}()
 
-	if policy.ReplyFirst != BoolTrue {
+	var dstConn *net.TCPConn
+	if !policy.ReplyFirst.IsTrue() {
 		dstConn, err = c.dialer.DialTCPTimeoutMulti(dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldDest, " failed: ", err)
@@ -151,6 +144,11 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 			}
 			return
 		}
+		defer func() {
+			if closeHere {
+				dstConn.Close()
+			}
+		}()
 	}
 	_, err = cliConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 	if err != nil {
@@ -230,8 +228,8 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 	outReq.Header.Del("Upgrade")
 
 	transport := defaultHTTPTransport.Clone()
-	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return c.dialer.DialTimeoutMulti(ctx, network, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
+	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return c.dialer.DialTimeoutMulti(ctx, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
 	}
 
 	resp, err := transport.RoundTrip(outReq)

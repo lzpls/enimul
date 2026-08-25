@@ -20,7 +20,8 @@ import (
 type tunnelSession = struct {
 	logger                 log.Logger
 	p                      *Policy
-	cliConn, dstConn       net.Conn
+	cliConn                net.Conn
+	dstConn                *net.TCPConn
 	oldTarget              string
 	target                 *dial.Dst
 	originHost, originPort string
@@ -33,15 +34,10 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 		err       error
 		closeHere = true
 	)
-	closeBoth := func() {
-		ts.cliConn.Close()
-		if ts.dstConn != nil {
-			ts.dstConn.Close()
-		}
-	}
 	defer func() {
 		if closeHere {
-			closeBoth()
+			ts.cliConn.Close()
+			ts.dstConn.Close()
 		}
 	}()
 
@@ -108,16 +104,16 @@ func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
 	return true
 }
 
-func forward(logger log.Logger, srcConn, dstConn net.Conn, dstAddr string) {
+func forward(logger log.Logger, srcConn net.Conn, dstConn *net.TCPConn, dstAddr string) {
 	logger.Info("Start forwarding")
-	srcTCPConn, dstTCPConn := srcConn.(*net.TCPConn), dstConn.(*net.TCPConn)
+	srcTCPConn := srcConn.(*net.TCPConn)
 	closeBoth := func() {
-		dstTCPConn.Close()
+		dstConn.Close()
 		srcTCPConn.Close()
 	}
 	var done atomic.Bool
 	go func() {
-		if _, err := io.Copy(dstTCPConn, srcTCPConn); err != nil {
+		if _, err := io.Copy(dstConn, srcTCPConn); err != nil {
 			closeBoth()
 			if errors.Is(err, net.ErrClosed) {
 				return
@@ -126,12 +122,12 @@ func forward(logger log.Logger, srcConn, dstConn net.Conn, dstAddr string) {
 			return
 		}
 		logger.Debug("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, " finished")
-		if err := dstTCPConn.CloseWrite(); err != nil || done.Swap(true) {
+		if err := dstConn.CloseWrite(); err != nil || done.Swap(true) {
 			closeBoth()
 		}
 	}()
 	go func() {
-		if _, err := io.Copy(srcTCPConn, dstTCPConn); err != nil {
+		if _, err := io.Copy(srcTCPConn, dstConn); err != nil {
 			closeBoth()
 			if errors.Is(err, net.ErrClosed) {
 				return

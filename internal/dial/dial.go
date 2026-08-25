@@ -28,7 +28,7 @@ func (d *Dialer) GetLocalAddr(isIPv6 bool) netip.AddrPort {
 	return d.localIPv4.Load().AddrPort()
 }
 
-func (d *Dialer) DialContextMulti(ctx context.Context, network string, dst *Dst, port string, dialDelay time.Duration) (net.Conn, error) {
+func (d *Dialer) DialContextMulti(ctx context.Context, dst *Dst, port string, dialDelay time.Duration) (*net.TCPConn, error) {
 	if dst.IsMulti() {
 		return d.dialParallel(ctx, dst.multi, port, dialDelay)
 	}
@@ -43,20 +43,24 @@ func (d *Dialer) DialContextMulti(ctx context.Context, network string, dst *Dst,
 	if laddr != nil {
 		nd.LocalAddr = laddr
 	}
-	return nd.DialContext(ctx, network, raddr)
+	conn, err := nd.DialContext(ctx, "tcp", raddr)
+	if err != nil {
+		return nil, err
+	}
+	return conn.(*net.TCPConn), nil
 }
 
-func (d *Dialer) DialTimeoutMulti(ctx context.Context, network string, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
+func (d *Dialer) DialTimeoutMulti(ctx context.Context, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (*net.TCPConn, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return d.DialContextMulti(timeoutCtx, network, dst, port, dialDelay)
+	return d.DialContextMulti(timeoutCtx, dst, port, dialDelay)
 }
 
-func (d *Dialer) DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (net.Conn, error) {
-	return d.DialTimeoutMulti(context.Background(), "tcp", dst, port, timeout, dialDelay)
+func (d *Dialer) DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (*net.TCPConn, error) {
+	return d.DialTimeoutMulti(context.Background(), dst, port, timeout, dialDelay)
 }
 
-func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (net.Conn, error) {
+func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (*net.TCPConn, error) {
 	if len(addrs) == 0 {
 		return nil, E.New("no addresses to dial")
 	}
