@@ -37,7 +37,9 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 	defer func() {
 		if closeHere {
 			ts.cliConn.Close()
-			ts.dstConn.Close()
+			if ts.dstConn != nil {
+				ts.dstConn.Close()
+			}
 		}
 	}()
 
