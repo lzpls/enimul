@@ -197,6 +197,7 @@ func (c *Core) handleHTTP(ts *tunnelSession, req *http.Request) (ok bool) {
 			}
 			return
 		}
+		ts.connTracker.addConn(ts.dstConn)
 	}
 	if err := req.Write(ts.dstConn); err != nil {
 		ts.logger.Error("Forward HTTP request: ", err)
