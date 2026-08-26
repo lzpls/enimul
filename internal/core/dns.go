@@ -202,7 +202,7 @@ func buildDNSExchangeFunc(c DNSClient, addr string) dnsExchangeFunc {
 
 func buildDoHExchangeFunc(httpClient *http.Client, addr string) dnsExchangeFunc {
 	urlPrefix := addr + "?dns="
-	return func(req *dns.Msg) (resp *dns.Msg, err error) {
+	return func(req *dns.Msg) (*dns.Msg, error) {
 		wire, err := req.Pack()
 		if err != nil {
 			return nil, E.WithStr("pack dns request", err)
@@ -225,11 +225,11 @@ func buildDoHExchangeFunc(httpClient *http.Client, addr string) dnsExchangeFunc 
 		if err != nil {
 			return nil, E.WithStr("read http body", err)
 		}
-		resp = new(dns.Msg)
+		resp := new(dns.Msg)
 		if err = resp.Unpack(respWire); err != nil {
 			return nil, E.WithStr("unpack dns response", err)
 		}
-		return
+		return resp, nil
 	}
 }
 

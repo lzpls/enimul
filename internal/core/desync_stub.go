@@ -14,9 +14,10 @@ import (
 
 var errTTLDNotSupported = E.New("`ttl-d` is not supported on current system")
 
-type TTLProbingConfig = struct{}
-
-type ttlProbingFields = struct{}
+type (
+	TTLProbingConfig = struct{}
+	ttlProbingFields = struct{}
+)
 
 func (c *Core) setTTLProbing(TTLProbingConfig) error {
 	F.Println("Warning:", errTTLDNotSupported)

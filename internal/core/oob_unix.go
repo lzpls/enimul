@@ -22,12 +22,13 @@ func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
 
 	var sendErr error
 	if err = rawConn.Write(func(fd uintptr) (done bool) {
-	tryagain:
-		sendErr = syscall.Sendto(int(fd), buf, syscall.MSG_OOB, nil)
-		if sendErr == syscall.EINTR {
-			goto tryagain
+		for {
+			sendErr = syscall.Sendto(int(fd), buf, syscall.MSG_OOB, nil)
+			if sendErr == syscall.EINTR {
+				continue
+			}
+			return true
 		}
-		return true
 	}); err != nil {
 		return E.WithStr("raw write", err)
 	}
