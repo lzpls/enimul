@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -10,7 +11,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 )
 
-func (c *Core) SNIServe(cmdAddr, configAddr string) {
+func (c *Core) SNIServe(ctx context.Context, cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -26,6 +27,8 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 		return
 	}
 	defer ln.Close()
+	c.sniProxyListener = ln
+	c.sniProxyConnTracker = newConnTracker()
 	addr := ln.Addr().String()
 	logger.Info("SNI proxy server started at ", addr)
 	_, port, err := net.SplitHostPort(addr)
@@ -41,7 +44,7 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 			if connID > maxConnID {
 				connID = 1
 			}
-			go c.handleTunnelSNI(conn, connID, port)
+			go c.handleTunnelSNI(ctx, conn, connID, port)
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
@@ -53,11 +56,13 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 	}
 }
 
-func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
+func (c *Core) handleTunnelSNI(ctx context.Context, conn *net.TCPConn, connID uint32, port string) {
+	c.sniProxyConnTracker.addConn(conn)
 	closeHere := true
 	defer func() {
 		if closeHere {
 			conn.Close()
+			c.sniProxyConnTracker.removeConn(conn)
 		}
 	}()
 
@@ -81,6 +86,8 @@ func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 	}
 
 	ts := &tunnelSession{
+		ctx:          ctx,
+		connTracker:  c.sniProxyConnTracker,
 		logger:       logger,
 		p:            &Policy{SniffOverrideMode: SniffOverrideAlways},
 		cliConn:      conn,
@@ -93,5 +100,5 @@ func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 	}
 
 	closeHere = false
-	forward(logger, conn, ts.dstConn, ts.originHost)
+	forward(logger, conn, ts.dstConn, ts.originHost, c.sniProxyConnTracker)
 }

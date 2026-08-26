@@ -22,10 +22,10 @@ import (
 )
 
 type DNSClient interface {
-	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
+	ExchangeContext(context.Context, *dns.Msg, string) (*dns.Msg, time.Duration, error)
 }
 
-type dnsExchangeFunc = func(req *dns.Msg) (resp *dns.Msg, err error)
+type dnsExchangeFunc = func(ctx context.Context, req *dns.Msg) (resp *dns.Msg, err error)
 
 type dnsFields = struct {
 	client         DNSClient
@@ -194,21 +194,21 @@ func (c *Core) setDNS(conf DNSConfig) error {
 }
 
 func buildDNSExchangeFunc(c DNSClient, addr string) dnsExchangeFunc {
-	return func(req *dns.Msg) (resp *dns.Msg, err error) {
-		resp, _, err = c.Exchange(req, addr)
+	return func(ctx context.Context, req *dns.Msg) (resp *dns.Msg, err error) {
+		resp, _, err = c.ExchangeContext(ctx, req, addr)
 		return resp, err
 	}
 }
 
 func buildDoHExchangeFunc(httpClient *http.Client, addr string) dnsExchangeFunc {
 	urlPrefix := addr + "?dns="
-	return func(req *dns.Msg) (*dns.Msg, error) {
+	return func(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 		wire, err := req.Pack()
 		if err != nil {
 			return nil, E.WithStr("pack dns request", err)
 		}
 		url := urlPrefix + base64.RawURLEncoding.EncodeToString(wire)
-		httpReq, err := http.NewRequest(http.MethodGet, url, nil)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return nil, E.WithStr("build http request", err)
 		}
@@ -347,7 +347,7 @@ func pickAAAARecords(answer []dns.RR) []net.IP {
 	return ips
 }
 
-func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ip net.IP, _ error) {
+func (c *Core) dnsResolveSingle(ctx context.Context, domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ip net.IP, _ error) {
 	switch mode {
 	case DNSModeIPv4Only:
 		if ip = pickFirstARecord(ans); ip == nil {
@@ -360,7 +360,7 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 	case DNSModePreferIPv4:
 		if ip = pickFirstARecord(ans); ip == nil {
 			msg.SetQuestion(domain, dns.TypeAAAA)
-			resp, err2 := c.dns.exchange(msg)
+			resp, err2 := c.dns.exchange(ctx, msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -374,7 +374,7 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 	case DNSModePreferIPv6:
 		if ip = pickFirstAAAARecord(ans); ip == nil {
 			msg.SetQuestion(domain, dns.TypeA)
-			resp, err2 := c.dns.exchange(msg)
+			resp, err2 := c.dns.exchange(ctx, msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -389,7 +389,7 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 	return
 }
 
-func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ips []net.IP, _ error) {
+func (c *Core) dnsResolveMulti(ctx context.Context, domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ips []net.IP, _ error) {
 	switch mode {
 	case DNSModeMultiIPv4Only:
 		if ips = pickARecords(ans); ips == nil {
@@ -402,7 +402,7 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 	case DNSModeMultiPreferIPv4:
 		if ips = pickARecords(ans); ips == nil {
 			msg.SetQuestion(domain, dns.TypeAAAA)
-			resp, err2 := c.dns.exchange(msg)
+			resp, err2 := c.dns.exchange(ctx, msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -416,7 +416,7 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 	case DNSModeMultiPreferIPv6:
 		if ips = pickAAAARecords(ans); ips == nil {
 			msg.SetQuestion(domain, dns.TypeA)
-			resp, err2 := c.dns.exchange(msg)
+			resp, err2 := c.dns.exchange(ctx, msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -431,7 +431,7 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 	return
 }
 
-func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration) (*dial.Dst, error) {
+func (c *Core) doDNSResolve(ctx context.Context, domain string, mode DNSMode, cacheTTL time.Duration) (*dial.Dst, error) {
 	msg := new(dns.Msg)
 	fqdn := dns.Fqdn(domain)
 	switch mode {
@@ -444,7 +444,7 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 		msg.Extra = []dns.RR{c.dns.edns0SubnetOpt}
 	}
 
-	resp, err := c.dns.exchange(msg)
+	resp, err := c.dns.exchange(ctx, msg)
 	if err != nil {
 		return nil, E.WithStr("dns exchange", err)
 	}
@@ -455,13 +455,13 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 	var dst *dial.Dst
 	switch mode {
 	case DNSModeIPv4Only, DNSModeIPv6Only, DNSModePreferIPv4, DNSModePreferIPv6:
-		ip, err := c.dnsResolveSingle(fqdn, mode, resp.Answer, msg, err)
+		ip, err := c.dnsResolveSingle(ctx, fqdn, mode, resp.Answer, msg, err)
 		if err != nil {
 			return nil, err
 		}
 		dst = dial.NewSingleDst(ip.String())
 	case DNSModeMultiIPv4Only, DNSModeMultiIPv6Only, DNSModeMultiPreferIPv4, DNSModeMultiPreferIPv6:
-		ips, err := c.dnsResolveMulti(fqdn, mode, resp.Answer, msg, err)
+		ips, err := c.dnsResolveMulti(ctx, fqdn, mode, resp.Answer, msg, err)
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +474,7 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 	return dst, nil
 }
 
-func (c *Core) dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (dst *dial.Dst, cached bool, err error) {
+func (c *Core) dnsResolve(ctx context.Context, domain string, mode DNSMode, cacheTTL time.Duration) (dst *dial.Dst, cached bool, err error) {
 	if c.dns.cache != nil {
 		if dst, ok := c.dns.cache.Get(domain); ok {
 			return dst, true, nil
@@ -482,10 +482,10 @@ func (c *Core) dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (
 	}
 
 	if c.dns.resolveGroup == nil {
-		dst, err = c.doDNSResolve(domain, mode, cacheTTL)
+		dst, err = c.doDNSResolve(ctx, domain, mode, cacheTTL)
 	} else {
 		dst, err, _ = c.dns.resolveGroup.Do(domain, func() (*dial.Dst, error) {
-			return c.doDNSResolve(domain, mode, cacheTTL)
+			return c.doDNSResolve(ctx, domain, mode, cacheTTL)
 		})
 	}
 
@@ -535,17 +535,13 @@ func (c *antiHijackDNSClient) getTimeoutForRequest(timeout time.Duration) time.D
 	return requestTimeout
 }
 
-func (c *antiHijackDNSClient) Exchange(m *dns.Msg, address string) (r *dns.Msg, rtt time.Duration, err error) {
-	co, err := c.Dial(address)
+func (c *antiHijackDNSClient) ExchangeContext(ctx context.Context, m *dns.Msg, address string) (r *dns.Msg, rtt time.Duration, err error) {
+	co, err := c.DialContext(ctx, address)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer co.Close()
-	return c.ExchangeWithConn(m, co)
-}
-
-func (c *antiHijackDNSClient) ExchangeWithConn(m *dns.Msg, conn *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {
-	return c.ExchangeWithConnContext(context.Background(), m, conn)
+	return c.ExchangeWithConnContext(ctx, m, co)
 }
 
 func (c *antiHijackDNSClient) ExchangeWithConnContext(ctx context.Context, m *dns.Msg, co *dns.Conn) (r *dns.Msg, rtt time.Duration, err error) {

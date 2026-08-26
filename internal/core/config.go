@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -30,12 +31,12 @@ type Config struct {
 	IpPolicies       orderedmap.Map[Policy]   `json:"ip_policies"`
 }
 
-func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, string, string, error) {
+func (c *Core) Init(ctx context.Context, cancel context.CancelFunc, configPath string, disallowUnknownFields bool) (string, string, string, error) {
 	anErr := func(text string, err error) (string, string, string, error) {
 		return "", "", "", E.WithStr(text, err)
 	}
 
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return anErr("read config", err)
 	}
@@ -60,9 +61,11 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 
 	if conf.IPPools.Len() > 0 {
 		c.ipPools = &conf.IPPools
+		pctx, closeIPPools := context.WithCancel(ctx)
 		for tag, pool := range c.ipPools.All() {
-			pool.Init(c.newLogger("P["+tag+"]"), c.dialer)
+			pool.Init(pctx, c.newLogger("P["+tag+"]"), c.dialer)
 		}
+		c.closeIPPools = closeIPPools
 	}
 
 	c.defaultPolicy = conf.DefaultPolicy
@@ -107,6 +110,7 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 		return anErr("init ttl probing", err)
 	}
 
+	c.cancel = cancel
 	return conf.Socks5Addr, conf.HttpAddr, conf.SNIProxyAddr, nil
 }
 

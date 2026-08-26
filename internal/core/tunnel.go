@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 
 	"github.com/lzpls/enimul/internal/dial"
@@ -18,6 +20,8 @@ import (
 )
 
 type tunnelSession = struct {
+	ctx                    context.Context
+	connTracker            *connTracker
 	logger                 log.Logger
 	p                      *Policy
 	cliConn, dstConn       *net.TCPConn
@@ -35,20 +39,18 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 	)
 	defer func() {
 		if closeHere {
-			ts.cliConn.Close()
-			if ts.dstConn != nil {
-				ts.dstConn.Close()
-			}
+			ts.connTracker.removeConns(ts.cliConn, ts.dstConn)
 		}
 	}()
 
 	if ts.p.Mode == ModeRaw {
 		if ts.dstConn == nil {
-			ts.dstConn, err = c.dialer.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
+			ts.dstConn, err = c.dialer.DialTimeoutMulti(ts.ctx, ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
 			if err != nil {
 				ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 				return
 			}
+			ts.connTracker.addConn(ts.dstConn)
 		}
 	} else {
 		br := bufio.NewReader(ts.cliConn)
@@ -87,7 +89,7 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 	}
 
 	closeHere = false
-	forward(ts.logger, ts.cliConn, ts.dstConn, ts.originHost)
+	forward(ts.logger, ts.cliConn, ts.dstConn, ts.originHost, ts.connTracker)
 }
 
 func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
@@ -105,16 +107,14 @@ func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
 	return true
 }
 
-func forward(logger log.Logger, srcConn, dstConn *net.TCPConn, dstAddr string) {
+func forward(logger log.Logger, srcConn, dstConn *net.TCPConn, dstAddr string, connTracker *connTracker) {
 	logger.Info("Start forwarding")
-	closeBoth := func() {
-		dstConn.Close()
-		srcConn.Close()
-	}
+	closeBoth := func() { connTracker.removeConns(srcConn, dstConn) }
+	var once sync.Once
 	var done atomic.Bool
 	go func() {
 		if _, err := io.Copy(dstConn, srcConn); err != nil {
-			closeBoth()
+			once.Do(closeBoth)
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
@@ -123,12 +123,12 @@ func forward(logger log.Logger, srcConn, dstConn *net.TCPConn, dstAddr string) {
 		}
 		logger.Debug("Forward ", srcConn.RemoteAddr(), "->", dstAddr, " finished")
 		if err := dstConn.CloseWrite(); err != nil || done.Swap(true) {
-			closeBoth()
+			once.Do(closeBoth)
 		}
 	}()
 	go func() {
 		if _, err := io.Copy(srcConn, dstConn); err != nil {
-			closeBoth()
+			once.Do(closeBoth)
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
@@ -137,7 +137,7 @@ func forward(logger log.Logger, srcConn, dstConn *net.TCPConn, dstAddr string) {
 		}
 		logger.Debug("Forward ", dstAddr, "->", srcConn.RemoteAddr(), " finished")
 		if err := srcConn.CloseWrite(); err != nil || done.Swap(true) {
-			closeBoth()
+			once.Do(closeBoth)
 		}
 	}()
 }
@@ -179,7 +179,7 @@ func (c *Core) handleHTTP(ts *tunnelSession, req *http.Request) (ok bool) {
 		return
 	}
 	if ts.dstConn == nil {
-		ts.dstConn, err = c.dialer.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
+		ts.dstConn, err = c.dialer.DialTimeoutMulti(ts.ctx, ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
 		if err != nil {
 			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			resp := &http.Response{
@@ -267,7 +267,7 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 				ts.logger.Info("SNI policy: ", ts.p)
 			}
 		case SniffOverrideAlways, SniffOverridePolicyExists:
-			newDst, sniPolicy, failed, blocked, policyNotExists := c.genPolicy(
+			newDst, sniPolicy, failed, blocked, policyNotExists := c.genPolicy(ts.ctx,
 				ts.logger, sniStr, false, !ts.fromSNIProxy && ts.p.SniffOverrideMode == SniffOverridePolicyExists)
 			switch {
 			case failed:
@@ -296,11 +296,13 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 				if sniPolicy.Port != 0 && sniPolicy.Port != unsetInt {
 					port = F.Int(sniPolicy.Port)
 				}
-				newConn, err := c.dialer.DialTCPTimeoutMulti(newDst, port, sniPolicy.ConnectTimeout, sniPolicy.DialDelay)
+				newConn, err := c.dialer.DialTimeoutMulti(ts.ctx, newDst, port, sniPolicy.ConnectTimeout, sniPolicy.DialDelay)
 				if err == nil {
 					if ts.dstConn != nil {
 						ts.dstConn.Close()
+						ts.connTracker.removeConn(ts.dstConn)
 					}
+					ts.connTracker.addConn(newConn)
 					ts.dstConn, ts.p, ts.target, ts.port = newConn, sniPolicy, newDst, port
 					if !ts.fromSNIProxy {
 						ts.logger.Info("Target has been changed to ", sniStr)
@@ -316,11 +318,12 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 	}
 
 	if ts.dstConn == nil {
-		ts.dstConn, err = c.dialer.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
+		ts.dstConn, err = c.dialer.DialTimeoutMulti(ts.ctx, ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
 		if err != nil {
 			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			return
 		}
+		ts.connTracker.addConn(ts.dstConn)
 	}
 	if mode == ModeUnset {
 		mode = ts.p.Mode

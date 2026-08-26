@@ -199,16 +199,16 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 	return ips, nil
 }
 
-func (p *IPPool) Init(logger log.Logger, dialer *dial.Dialer) {
+func (p *IPPool) Init(ctx context.Context, logger log.Logger, dialer *dial.Dialer) {
 	p.logger = logger
 	p.dialer = dialer
 	if p.waitScanOnStartUp {
-		p.scan()
-		go p.monitor()
+		p.scan(ctx)
+		go p.monitor(ctx)
 	} else {
 		go func() {
-			p.scan()
-			p.monitor()
+			p.scan(ctx)
+			p.monitor(ctx)
 		}()
 	}
 }
@@ -219,7 +219,7 @@ type ipResult struct {
 	loss    float64
 }
 
-func (p *IPPool) scan() {
+func (p *IPPool) scan(ctx context.Context) {
 	p.scanMu.Lock()
 	defer p.scanMu.Unlock()
 
@@ -229,16 +229,25 @@ func (p *IPPool) scan() {
 	p.logger.Info("Testing...")
 
 	for i := range p.ips {
+		if ctx.Err() != nil {
+			return
+		}
 		wg.Go(func() {
 			p.sem <- struct{}{}
 			defer func() { <-p.sem }()
-			latency, loss := p.testIP(i)
-			results <- ipResult{i, latency, loss}
+			latency, loss, canceled := p.testIP(ctx, i)
+			if !canceled {
+				results <- ipResult{i, latency, loss}
+			}
 		})
 	}
 
 	wg.Wait()
 	close(results)
+
+	if ctx.Err() != nil {
+		return
+	}
 
 	validResults := make([]ipResult, 0, len(p.ips))
 	for res := range results {
@@ -247,10 +256,10 @@ func (p *IPPool) scan() {
 		}
 	}
 
-	p.updateBest(validResults)
+	p.updateBest(ctx, validResults)
 }
 
-func (p *IPPool) testIP(index int) (time.Duration, float64) {
+func (p *IPPool) testIP(ctx context.Context, index int) (time.Duration, float64, bool) {
 	var (
 		successCount int64
 		totalLatency time.Duration
@@ -261,8 +270,11 @@ func (p *IPPool) testIP(index int) (time.Duration, float64) {
 	raddr := netip.AddrPortFrom(ip, p.port)
 
 	for range p.attempts {
+		if ctx.Err() != nil {
+			return 0, 0, true
+		}
 		start := time.Now()
-		conn, err := dialer.DialTCP(context.Background(), "tcp", p.dialer.GetLocalAddr(isIPv6), raddr)
+		conn, err := dialer.DialTCP(ctx, "tcp", p.dialer.GetLocalAddr(isIPv6), raddr)
 		if err != nil {
 			continue
 		}
@@ -273,15 +285,15 @@ func (p *IPPool) testIP(index int) (time.Duration, float64) {
 
 	lossRate := 1.0 - float64(successCount)/float64(p.attempts)
 	if successCount == 0 {
-		return time.Duration(math.MaxInt64), lossRate
+		return time.Duration(math.MaxInt64), lossRate, false
 	}
 	latency := totalLatency / time.Duration(successCount)
 	p.logger.Debug("ip=", p.ips[index], " latency=", latency, " loss=", fmt.Sprintf("%.2f%%", lossRate*100))
-	return latency, lossRate
+	return latency, lossRate, false
 }
 
-func (p *IPPool) updateBest(results []ipResult) {
-	if len(results) == 0 {
+func (p *IPPool) updateBest(ctx context.Context, results []ipResult) {
+	if ctx.Err() != nil || len(results) == 0 {
 		return
 	}
 
@@ -330,9 +342,16 @@ func (p *IPPool) updateBest(results []ipResult) {
 	p.totalWeight = totalWeight
 }
 
-func (p *IPPool) monitor() {
-	for range time.Tick(p.updateInterval) {
-		p.scan()
+func (p *IPPool) monitor(ctx context.Context) {
+	ticker := time.NewTicker(p.updateInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			p.scan(ctx)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

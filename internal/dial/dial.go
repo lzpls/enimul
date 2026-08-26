@@ -19,6 +19,14 @@ type Dialer struct {
 	logger    log.Logger
 	localIPv4 atomic.Pointer[net.TCPAddr]
 	localIPv6 atomic.Pointer[net.TCPAddr]
+	stopCh    chan struct{}
+	stopOnce  sync.Once
+}
+
+func (d *Dialer) Close() {
+	d.stopOnce.Do(func() {
+		close(d.stopCh)
+	})
 }
 
 func (d *Dialer) GetLocalAddr(isIPv6 bool) netip.AddrPort {
@@ -54,10 +62,6 @@ func (d *Dialer) DialTimeoutMulti(ctx context.Context, dst *Dst, port string, ti
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return d.DialContextMulti(timeoutCtx, dst, port, dialDelay)
-}
-
-func (d *Dialer) DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (*net.TCPConn, error) {
-	return d.DialTimeoutMulti(context.Background(), dst, port, timeout, dialDelay)
 }
 
 func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (*net.TCPConn, error) {
@@ -166,25 +170,34 @@ func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portS
 type laddrMonitor = func() (ipv4 net.IP, ipv6 net.IP, zone string, err error)
 
 func (d *Dialer) startMonitor(interval time.Duration, lm laddrMonitor) {
-	for range time.Tick(interval) {
-		ipv4, ipv6, zone, err := lm()
-		if err != nil {
-			d.logger.Error("Failed to update local address: ", err)
-			continue
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopCh:
+			d.logger.Debug("Local address monitor stopped")
+			return
+		case <-ticker.C:
+			ipv4, ipv6, zone, err := lm()
+			if err != nil {
+				d.logger.Error("Failed to update local address: ", err)
+				continue
+			}
+			msg := []any{"Local address updated:"}
+			if ipv4 != nil {
+				d.localIPv4.Store(&net.TCPAddr{IP: ipv4})
+				msg = append(msg, " ipv4=", ipv4)
+			}
+			if ipv6 != nil {
+				d.localIPv6.Store(&net.TCPAddr{IP: ipv6, Zone: zone})
+				msg = append(msg, " ipv6=", ipv6)
+			}
+			if zone != "" {
+				msg = append(msg, " zone=\"", zone, "\"")
+			}
+			d.logger.Info(msg...)
 		}
-		msg := []any{"Local address updated:"}
-		if ipv4 != nil {
-			d.localIPv4.Store(&net.TCPAddr{IP: ipv4})
-			msg = append(msg, " ipv4=", ipv4)
-		}
-		if ipv6 != nil {
-			d.localIPv6.Store(&net.TCPAddr{IP: ipv6, Zone: zone})
-			msg = append(msg, " ipv6=", ipv6)
-		}
-		if zone != "" {
-			msg = append(msg, " zone=\"", zone, "\"")
-		}
-		d.logger.Info(msg...)
 	}
 }
 
@@ -278,7 +291,7 @@ func NewDialer(logger log.Logger, o BindingOption) (*Dialer, error) {
 		ipv4, ipv6, zone = o.CustomIPv4, o.CustomIPv6, o.CustomZone
 	}
 
-	var d Dialer
+	d := Dialer{stopCh: make(chan struct{})}
 	if ipv4 != nil {
 		d.localIPv4.Store(&net.TCPAddr{IP: ipv4})
 	}

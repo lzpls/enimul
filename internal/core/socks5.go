@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -22,7 +23,7 @@ var (
 
 const maxConnID = 0xFFFFF
 
-func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
+func (c *Core) SOCKS5Serve(ctx context.Context, cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -42,6 +43,8 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 		return
 	}
 	defer ln.Close()
+	c.socks5Listener = ln
+	c.socks5ConnTracker = newConnTracker()
 	logger.Info("SOCKS5 proxy server started at ", ln.Addr())
 
 	var connID uint32
@@ -52,7 +55,7 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 			if connID > maxConnID {
 				connID = 1
 			}
-			go c.socks5Handler(conn, connID)
+			go c.socks5Handler(ctx, conn, connID)
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
@@ -77,11 +80,13 @@ func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
 	return true
 }
 
-func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
+func (c *Core) socks5Handler(ctx context.Context, cliConn *net.TCPConn, id uint32) {
+	c.socks5ConnTracker.addConn(cliConn)
 	closeHere := true
 	defer func() {
 		if closeHere {
 			cliConn.Close()
+			c.socks5ConnTracker.removeConn(cliConn)
 		}
 	}()
 
@@ -174,7 +179,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		return
 	}
 
-	dstHost, policy, failed, blocked, _ := c.genPolicy(logger, originHost, isIP, false)
+	dstHost, policy, failed, blocked, _ := c.genPolicy(ctx, logger, originHost, isIP, false)
 	if failed {
 		sendReply(logger, cliConn, socks5ReplyServerFailure)
 		return
@@ -203,15 +208,17 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	var dstConn *net.TCPConn
 	port := F.Uint(dstPort)
 	if !policy.ReplyFirst.IsTrue() {
-		dstConn, err = c.dialer.DialTCPTimeoutMulti(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
+		dstConn, err = c.dialer.DialTimeoutMulti(ctx, dstHost, port, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)
 			return
 		}
+		c.socks5ConnTracker.addConn(dstConn)
 		defer func() {
 			if closeHere {
 				dstConn.Close()
+				c.socks5ConnTracker.removeConn(dstConn)
 			}
 		}()
 	}
@@ -221,14 +228,16 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 
 	closeHere = false
 	c.handleTunnel(&tunnelSession{
-		logger:     logger,
-		p:          policy,
-		cliConn:    cliConn,
-		dstConn:    dstConn,
-		oldTarget:  oldTarget,
-		target:     dstHost,
-		originHost: originHost,
-		originPort: originPort,
-		port:       port,
+		ctx:         ctx,
+		logger:      logger,
+		connTracker: c.socks5ConnTracker,
+		p:           policy,
+		cliConn:     cliConn,
+		dstConn:     dstConn,
+		oldTarget:   oldTarget,
+		target:      dstHost,
+		originHost:  originHost,
+		originPort:  originPort,
+		port:        port,
 	})
 }

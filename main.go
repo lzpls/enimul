@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
+	"os/signal"
 	"runtime"
 	"sync"
+	"syscall"
 
 	"github.com/lzpls/enimul/internal/core"
 	F "github.com/lzpls/enimul/internal/fmt"
@@ -25,6 +28,8 @@ func main() {
 	maxprocs := flag.Int("mp", 0, "GOMAXPROCS")
 	printLicense := flag.Bool("license", false, "Show license and source code information and exit")
 	disallowUnknownFields := flag.Bool("duf", false, "Reject config containing unknown fields")
+	foregroundReload := flag.Bool("fr", false, "Reload after receiving Ctrl+C")
+
 	flag.Parse()
 
 	if *printLicense {
@@ -40,24 +45,65 @@ func main() {
 		}
 	}
 
-	instance := new(core.Core)
-	configSocks5Addr, configHTTPAddr, configSNIAddr, err := instance.LoadConfig(configPath, *disallowUnknownFields)
-	if err != nil {
-		F.Println("Failed to load config:", err)
-		return
-	}
-
 	if *maxprocs > 0 {
 		runtime.GOMAXPROCS(*maxprocs)
 	}
-
 	startPprofServer()
 
-	var wg sync.WaitGroup
-	wg.Go(func() { instance.SOCKS5Serve(*socks5Addr, configSocks5Addr) })
-	wg.Go(func() { instance.HTTPServe(*httpAddr, configHTTPAddr) })
-	wg.Go(func() { instance.SNIServe(*sniAddr, configSNIAddr) })
-	wg.Wait()
+	osSignals := make(chan os.Signal, 1)
+	signal.Notify(osSignals, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
+	defer signal.Stop(osSignals)
+	for {
+		instance := core.Core{}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		configSocks5Addr, configHTTPAddr, configSNIAddr, err := instance.Init(ctx, cancel, configPath, *disallowUnknownFields)
+		if err != nil {
+			F.Println("Failed to load config:", err)
+			return
+		}
+		var wg sync.WaitGroup
+		wg.Go(func() { instance.SOCKS5Serve(ctx, *socks5Addr, configSocks5Addr) })
+		wg.Go(func() { instance.HTTPServe(ctx, *httpAddr, configHTTPAddr) })
+		wg.Go(func() { instance.SNIServe(ctx, *sniAddr, configSNIAddr) })
+		go func() {
+			wg.Wait()
+			instance.Cleanup()
+		}()
+		sig := <-osSignals
+		switch sig {
+		case syscall.SIGHUP:
+			instance.StopListening()
+			go instance.WaitAndCleanup(ctx)
+			F.Println("Reloading...")
+			continue
+		case os.Interrupt:
+			if *foregroundReload {
+				instance.StopListening()
+				go instance.WaitAndCleanup(ctx)
+				F.Println("Reloading...")
+				continue
+			}
+			F.Println("Waiting for active connections... Press Ctrl+C again to exit")
+		case syscall.SIGTERM:
+		}
+		done := make(chan struct{}, 1)
+		go func() {
+			instance.StopListening()
+			instance.Wait(ctx)
+			done <- struct{}{}
+		}()
+		for {
+			select {
+			case sig := <-osSignals:
+				if sig == os.Interrupt || sig == syscall.SIGTERM {
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}
 }
 
 func showLicense() {

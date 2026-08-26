@@ -34,7 +34,7 @@ func (c *Core) getHTTPConnID() uint32 {
 	}
 }
 
-func (c *Core) HTTPServe(cmdAddr, configAddr string) {
+func (c *Core) HTTPServe(ctx context.Context, cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
@@ -48,13 +48,20 @@ func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 	}
 
 	logger := c.newLogger("H[00000]")
-	ln, err := net.Listen("tcp", listenAddr)
+	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start HTTP proxy server: ", err)
 		return
 	}
+	c.httpListener = ln
+	c.httpConnTracker = newConnTracker()
 	logger.Info("HTTP proxy server started at ", ln.Addr())
-	if err := http.Serve(ln, http.HandlerFunc(c.httpHandler)); err != nil {
+	srv := &http.Server{
+		Handler:     http.HandlerFunc(c.httpHandler),
+		BaseContext: func(_ net.Listener) context.Context { return ctx },
+	}
+	c.httpServer = srv
+	if err := srv.Serve(ln); err != nil {
 		logger.Error("HTTP serve: ", err)
 	}
 }
@@ -91,7 +98,8 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		return
 	}
 
-	dstHost, policy, fail, blocked, _ := c.genPolicy(logger, originHost, false, false)
+	ctx := req.Context()
+	dstHost, policy, fail, blocked, _ := c.genPolicy(ctx, logger, originHost, false, false)
 	if fail {
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
@@ -126,23 +134,19 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
 	}
+	cliConn := conn.(*net.TCPConn)
+	c.httpConnTracker.addConn(cliConn)
 	closeHere := true
 	defer func() {
 		if closeHere {
-			conn.Close()
+			cliConn.Close()
+			c.httpConnTracker.removeConn(cliConn)
 		}
 	}()
 
-	cliConn, ok := conn.(*net.TCPConn)
-	if !ok {
-		logger.Error("Not a *net.TCPConn")
-		http.Error(w, status500, http.StatusInternalServerError)
-		return
-	}
-
 	var dstConn *net.TCPConn
 	if !policy.ReplyFirst.IsTrue() {
-		dstConn, err = c.dialer.DialTCPTimeoutMulti(dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
+		dstConn, err = c.dialer.DialTimeoutMulti(ctx, dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldDest, " failed: ", err)
 			_, err = cliConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
@@ -151,9 +155,11 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 			}
 			return
 		}
+		c.httpConnTracker.addConn(dstConn)
 		defer func() {
 			if closeHere {
 				dstConn.Close()
+				c.httpConnTracker.removeConn(dstConn)
 			}
 		}()
 	}
@@ -165,15 +171,17 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 
 	closeHere = false
 	c.handleTunnel(&tunnelSession{
-		logger:     logger,
-		p:          policy,
-		cliConn:    cliConn,
-		dstConn:    dstConn,
-		oldTarget:  oldDest,
-		target:     dstHost,
-		originHost: originHost,
-		originPort: originPort,
-		port:       dstPort,
+		ctx:         ctx,
+		connTracker: c.httpConnTracker,
+		logger:      logger,
+		p:           policy,
+		cliConn:     cliConn,
+		dstConn:     dstConn,
+		oldTarget:   oldDest,
+		target:      dstHost,
+		originHost:  originHost,
+		originPort:  originPort,
+		port:        dstPort,
 	})
 }
 
@@ -196,7 +204,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 		port = "80"
 	}
 
-	dstHost, p, failed, blocked, _ := c.genPolicy(logger, originHost, false, false)
+	dstHost, p, failed, blocked, _ := c.genPolicy(originReq.Context(), logger, originHost, false, false)
 	if failed {
 		http.Error(w, status500, http.StatusInternalServerError)
 		return

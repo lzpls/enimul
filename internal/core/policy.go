@@ -772,6 +772,7 @@ func stripNoRedirectPrefix(s string) (string, bool) {
 }
 
 func (c *Core) genPolicy(
+	ctx context.Context,
 	logger log.Logger,
 	originHost string,
 	isIP, returnWhenDomainNotFound bool,
@@ -834,7 +835,7 @@ func (c *Core) genPolicy(
 
 	fromDNS := false
 	if single == "" {
-		resolved, cached, err := c.dnsResolve(originHost, p.DNSMode, p.DNSCacheTTL)
+		resolved, cached, err := c.dnsResolve(ctx, originHost, p.DNSMode, p.DNSCacheTTL)
 		if err != nil {
 			logger.Error("Resolve ", originHost, " failed: ", err)
 			return nil, nil, true, false, false
@@ -854,7 +855,7 @@ func (c *Core) genPolicy(
 
 	if strings.HasPrefix(single, resolvePrefix) {
 		cname := single[1:]
-		resolved, cached, err := c.dnsResolve(cname, p.DNSMode, p.DNSCacheTTL)
+		resolved, cached, err := c.dnsResolve(ctx, cname, p.DNSMode, p.DNSCacheTTL)
 		if err != nil {
 			logger.Error("Resolve ", originHost, " failed: ", err)
 			return nil, nil, true, false, false
