@@ -2,6 +2,7 @@ package core
 
 import (
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -65,4 +66,12 @@ func getRawConn(conn any) (syscall.RawConn, error) {
 	}
 	rawConn, err := sc.SyscallConn()
 	return rawConn, E.WithStr("get raw conn", err)
+}
+
+func listenTCP(addrStr string) (*net.TCPListener, error) {
+	addr, err := net.ResolveTCPAddr("tcp", addrStr)
+	if err != nil {
+		return nil, err
+	}
+	return net.ListenTCP("tcp", addr)
 }

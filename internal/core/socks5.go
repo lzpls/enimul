@@ -36,7 +36,7 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 	}
 
 	logger := c.newLogger("S[00000]")
-	ln, err := net.Listen("tcp", listenAddr)
+	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start SOCKS5 server: ", err)
 		return
@@ -46,7 +46,7 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 
 	var connID uint32
 	for {
-		conn, err := ln.Accept()
+		conn, err := ln.AcceptTCP()
 		if err == nil {
 			connID += 1
 			if connID > maxConnID {
@@ -77,7 +77,7 @@ func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
 	return true
 }
 
-func (c *Core) socks5Handler(cliConn net.Conn, id uint32) {
+func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	closeHere := true
 	defer func() {
 		if closeHere {

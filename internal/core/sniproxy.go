@@ -20,7 +20,7 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 	}
 
 	logger := c.newLogger("SP[00000]")
-	ln, err := net.Listen("tcp", listenAddr)
+	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start SNI proxy server: ", err)
 		return
@@ -35,7 +35,7 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 
 	var connID uint32
 	for {
-		conn, err := ln.Accept()
+		conn, err := ln.AcceptTCP()
 		if err == nil {
 			connID += 1
 			if connID > maxConnID {
@@ -53,7 +53,7 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 	}
 }
 
-func (c *Core) handleTunnelSNI(conn net.Conn, connID uint32, port string) {
+func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 	closeHere := true
 	defer func() {
 		if closeHere {

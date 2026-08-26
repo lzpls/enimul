@@ -553,7 +553,7 @@ func (c *Core) getIPPolicy(ip netip.Addr) (*Policy, bool) {
 }
 
 type policyConn struct {
-	net.Conn
+	*net.TCPConn
 	core    *Core
 	policy  *Policy
 	handled bool
@@ -561,7 +561,7 @@ type policyConn struct {
 
 func (c *policyConn) Write(b []byte) (n int, err error) {
 	if c.handled {
-		return c.Conn.Write(b)
+		return c.TCPConn.Write(b)
 	}
 	c.handled = true
 	var sniStart, sniLen int
@@ -574,11 +574,11 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 		return 0, E.New("not a TLS 1.3 ClientHello")
 	}
 	if sniStart == -1 {
-		return c.Conn.Write(b)
+		return c.TCPConn.Write(b)
 	}
 	switch c.policy.Mode {
 	case ModeDirect, ModeRaw:
-		return c.Conn.Write(b)
+		return c.TCPConn.Write(b)
 	case ModeTTLD:
 		raddr := c.RemoteAddr().(*net.TCPAddr).AddrPort()
 		ttl, err := c.core.getFakeTTL(nil, c.policy, raddr)
@@ -586,13 +586,13 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 			return 0, E.WithStr("get fake ttl", err)
 		}
 		if err = desyncSend(
-			c.Conn, b,
+			c.TCPConn, b,
 			sniStart, sniLen, ttl, c.policy.FakeSleep,
 		); err != nil {
 			return 0, E.WithStr("ttl desync", err)
 		}
 	case ModeTLSRF:
-		if err = sendRecords(c.Conn, b, sniStart, sniLen,
+		if err = sendRecords(c.TCPConn, b, sniStart, sniLen,
 			c.policy.NumRecords, c.policy.NumSegments,
 			c.policy.MinorVer,
 			c.policy.OOB.IsTrue(), c.policy.OOBEx.IsTrue(),
@@ -698,7 +698,7 @@ brk:
 			if err != nil {
 				return nil, err
 			}
-			return &policyConn{Conn: conn, core: c, policy: policy}, nil
+			return &policyConn{TCPConn: conn, core: c, policy: policy}, nil
 		}, nil
 	}
 	tag := finalDst.Single()[1:]
@@ -712,7 +712,7 @@ brk:
 			if err != nil {
 				return nil, err
 			}
-			return &policyConn{Conn: conn, core: c, policy: policy}, nil
+			return &policyConn{TCPConn: conn, core: c, policy: policy}, nil
 		}, nil
 	}
 	return func(ctx context.Context, network, _ string) (net.Conn, error) {
@@ -740,7 +740,7 @@ brk:
 		if err != nil {
 			return nil, err
 		}
-		return &policyConn{Conn: conn, core: c, policy: p}, nil
+		return &policyConn{TCPConn: conn, core: c, policy: p}, nil
 	}, nil
 }
 

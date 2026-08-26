@@ -20,8 +20,7 @@ import (
 type tunnelSession = struct {
 	logger                 log.Logger
 	p                      *Policy
-	cliConn                net.Conn
-	dstConn                *net.TCPConn
+	cliConn, dstConn       *net.TCPConn
 	oldTarget              string
 	target                 *dial.Dst
 	originHost, originPort string
@@ -106,39 +105,38 @@ func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
 	return true
 }
 
-func forward(logger log.Logger, srcConn net.Conn, dstConn *net.TCPConn, dstAddr string) {
+func forward(logger log.Logger, srcConn, dstConn *net.TCPConn, dstAddr string) {
 	logger.Info("Start forwarding")
-	srcTCPConn := srcConn.(*net.TCPConn)
 	closeBoth := func() {
 		dstConn.Close()
-		srcTCPConn.Close()
+		srcConn.Close()
 	}
 	var done atomic.Bool
 	go func() {
-		if _, err := io.Copy(dstConn, srcTCPConn); err != nil {
+		if _, err := io.Copy(dstConn, srcConn); err != nil {
 			closeBoth()
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			logger.Error("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, ": ", err)
+			logger.Error("Forward ", srcConn.RemoteAddr(), "->", dstAddr, ": ", err)
 			return
 		}
-		logger.Debug("Forward ", srcTCPConn.RemoteAddr(), "->", dstAddr, " finished")
+		logger.Debug("Forward ", srcConn.RemoteAddr(), "->", dstAddr, " finished")
 		if err := dstConn.CloseWrite(); err != nil || done.Swap(true) {
 			closeBoth()
 		}
 	}()
 	go func() {
-		if _, err := io.Copy(srcTCPConn, dstConn); err != nil {
+		if _, err := io.Copy(srcConn, dstConn); err != nil {
 			closeBoth()
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			logger.Error("Forward ", dstAddr, "->", srcTCPConn.RemoteAddr(), ": ", err)
+			logger.Error("Forward ", dstAddr, "->", srcConn.RemoteAddr(), ": ", err)
 			return
 		}
-		logger.Debug("Forward ", dstAddr, "->", srcTCPConn.RemoteAddr(), " finished")
-		if err := srcTCPConn.CloseWrite(); err != nil || done.Swap(true) {
+		logger.Debug("Forward ", dstAddr, "->", srcConn.RemoteAddr(), " finished")
+		if err := srcConn.CloseWrite(); err != nil || done.Swap(true) {
 			closeBoth()
 		}
 	}()
