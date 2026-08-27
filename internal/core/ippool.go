@@ -61,6 +61,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		Multi             bool     `json:"multi"`
 		FallbackIP        dial.Dst `json:"fallback_ip"`
 		IPs               []string `json:"ips"`
+		ExcludedIPs       []string `json:"excluded_ips"`
 		Port              int      `json:"port"`
 		TopIPCount        int      `json:"top_ip_count"`
 		MaxConcurrency    int      `json:"max_concurrency"`
@@ -72,7 +73,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	ips, err := parseIPList(tmp.IPs)
+	ips, err := parseIPList(tmp.IPs, tmp.ExcludedIPs)
 	if err != nil {
 		return err
 	}
@@ -156,24 +157,60 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func parseIPList(sources []string) ([]netip.Addr, error) {
+func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
+	excludedSet := make(map[netip.Addr]struct{})
+	var excludedPrefixes []netip.Prefix
+
+	for _, pattern := range excluded {
+		for _, s := range expandPattern(pattern) {
+			if addr, err := netip.ParseAddr(s); err == nil {
+				excludedSet[addr.Unmap()] = struct{}{}
+			} else if prefix, err := netip.ParsePrefix(s); err == nil {
+				excludedPrefixes = append(excludedPrefixes, prefix)
+			} else {
+				return nil, fmt.Errorf("excluded item %q is invalid", pattern)
+			}
+		}
+	}
+
+	isExcluded := func(addr netip.Addr) bool {
+		if _, ok := excludedSet[addr]; ok {
+			return true
+		}
+		for _, prefix := range excludedPrefixes {
+			if prefix.Contains(addr) {
+				return true
+			}
+		}
+		return false
+	}
+
 	ips := make([]netip.Addr, 0)
 	for _, pattern := range sources {
 		for _, s := range expandPattern(pattern) {
 			if len(ips) >= maxIPPoolSize {
 				return nil, fmt.Errorf("IP pool exceeds maximum size (%d) during parsing", maxIPPoolSize)
 			}
+
 			if addr, err := netip.ParseAddr(s); err == nil && addr.IsValid() {
-				ips = append(ips, addr.Unmap())
+				addr = addr.Unmap()
+				if !isExcluded(addr) {
+					ips = append(ips, addr)
+				}
 				continue
 			}
+
 			if prefix, err := netip.ParsePrefix(s); err == nil {
 				addr := prefix.Addr()
 				for prefix.Contains(addr) {
-					if len(ips) >= maxIPPoolSize {
-						return nil, fmt.Errorf("CIDR %s exceeds max pool size (%d)", s, maxIPPoolSize)
+					unmappedAddr := addr.Unmap()
+					if !isExcluded(unmappedAddr) {
+						if len(ips) >= maxIPPoolSize {
+							return nil, fmt.Errorf("CIDR %s exceeds max pool size (%d)", s, maxIPPoolSize)
+						}
+						ips = append(ips, unmappedAddr)
 					}
-					ips = append(ips, addr.Unmap())
+
 					next := addr.Next()
 					if !next.IsValid() || !prefix.Contains(next) {
 						break
@@ -182,16 +219,20 @@ func parseIPList(sources []string) ([]netip.Addr, error) {
 				}
 				continue
 			}
+
 			addrs, err := net.LookupIP(s)
 			if err != nil {
-				return nil, fmt.Errorf("DNS lookup failed for %s: %w", s, err)
+				return nil, fmt.Errorf("DNS lookup failed for %q: %w", s, err)
 			}
 			for _, ip := range addrs {
 				if addr, ok := netip.AddrFromSlice(ip); ok && addr.IsValid() {
-					if len(ips) >= maxIPPoolSize {
-						return nil, fmt.Errorf("DNS resolution for %s exceeds max pool size", s)
+					addr = addr.Unmap()
+					if !isExcluded(addr) {
+						if len(ips) >= maxIPPoolSize {
+							return nil, fmt.Errorf("DNS resolution for %s exceeds max pool size", s)
+						}
+						ips = append(ips, addr)
 					}
-					ips = append(ips, addr.Unmap())
 				}
 			}
 		}
