@@ -100,9 +100,11 @@
     },
     "162.125.0.0/16": {
       "map_to": "162.125.1.0/24",
-      "mode": "tls-rf",
       "num_records": 1,
       "num_segs": 3
+    },
+    "192.0.44.0/22;192.0.43.0/24;192.0.47.0/24;199.4.29.0/24;208.77.191.0/24": {
+      "mode": "raw"
     }
   },
   "domain_policies": {
@@ -120,7 +122,7 @@
       "num_segs": 3
     },
     "v2.hysteria.network": {
-      "num_records": 1
+      "num_records": 4
     },
     "*.github(assets|usercontent).com": {
       "dns_mode": "multi_prefer_ipv4"
@@ -135,6 +137,9 @@
     },
     "imp.pixiv.net;collector.github.com": {
       "mode": "block"
+    },
+    "releases.electronjs.org": {
+      "num_records": 1
     }
   }
 }
