@@ -164,18 +164,19 @@ func (b *Byte) UnmarshalJSON(data []byte) error {
 }
 
 type Policy struct {
-	ReplyFirst        TriBool
-	SniffOverrideMode SniffOverrideMode
-	DNSMode           DNSMode
-	DNSCacheTTL       time.Duration
-	ConnectTimeout    time.Duration
-	DialDelay         time.Duration
-	Host              dial.Dst
-	MapTo             dial.Dst
-	Port              int
-	HttpStatus        int
-	TLS13Only         TriBool
-	Mode              Mode
+	ReplyFirst            TriBool
+	SniffOverrideMode     SniffOverrideMode
+	DNSMode               DNSMode
+	DNSCacheTTL           time.Duration
+	ConnectTimeout        time.Duration
+	DialDelay             time.Duration
+	Host                  dial.Dst
+	MapTo                 dial.Dst
+	Port                  int
+	HttpStatus            int
+	TLS13Only             TriBool
+	DisableECHPassthrough TriBool
+	Mode                  Mode
 
 	NumRecords   int
 	NumSegments  int
@@ -195,31 +196,32 @@ type Policy struct {
 
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		SniffOverrideMode SniffOverrideMode `json:"sniff_override"`
-		ReplyFirst        TriBool           `json:"reply_first"`
-		ConnectTimeout    *string           `json:"connect_timeout"`
-		DialDelay         *string           `json:"dial_delay"`
-		Host              dial.Dst          `json:"host"`
-		MapTo             dial.Dst          `json:"map_to"`
-		Port              *uint16           `json:"port"`
-		DNSMode           DNSMode           `json:"dns_mode"`
-		DNSCacheTTL       *string           `json:"dns_cache_ttl"`
-		HttpStatus        *uint             `json:"http_status"`
-		TLS13Only         TriBool           `json:"tls13_only"`
-		Mode              Mode              `json:"mode"`
-		NumRecords        *uint             `json:"num_records"`
-		NumSegments       *int              `json:"num_segs"`
-		WaitForAck        TriBool           `json:"wait_for_ack"`
-		OOB               TriBool           `json:"oob"`
-		OOBEx             TriBool           `json:"oob_ex"`
-		MinorVer          Byte              `json:"minor_ver"`
-		SendInterval      *string           `json:"send_interval"`
-		FakeTTL           *uint8            `json:"fake_ttl"`
-		FakeSleep         *string           `json:"fake_sleep"`
-		MaxTTL            *uint8            `json:"max_ttl"`
-		Attempts          *uint             `json:"attempts"`
-		SingleTimeout     *string           `json:"single_timeout"`
-		TTLCacheTTL       *string           `json:"ttl_cache_ttl"`
+		SniffOverrideMode     SniffOverrideMode `json:"sniff_override"`
+		ReplyFirst            TriBool           `json:"reply_first"`
+		ConnectTimeout        *string           `json:"connect_timeout"`
+		DialDelay             *string           `json:"dial_delay"`
+		Host                  dial.Dst          `json:"host"`
+		MapTo                 dial.Dst          `json:"map_to"`
+		Port                  *uint16           `json:"port"`
+		DNSMode               DNSMode           `json:"dns_mode"`
+		DNSCacheTTL           *string           `json:"dns_cache_ttl"`
+		HttpStatus            *uint             `json:"http_status"`
+		TLS13Only             TriBool           `json:"tls13_only"`
+		DisableECHPassthrough TriBool           `json:"disable_ech_passthrough"`
+		Mode                  Mode              `json:"mode"`
+		NumRecords            *uint             `json:"num_records"`
+		NumSegments           *int              `json:"num_segs"`
+		WaitForAck            TriBool           `json:"wait_for_ack"`
+		OOB                   TriBool           `json:"oob"`
+		OOBEx                 TriBool           `json:"oob_ex"`
+		MinorVer              Byte              `json:"minor_ver"`
+		SendInterval          *string           `json:"send_interval"`
+		FakeTTL               *uint8            `json:"fake_ttl"`
+		FakeSleep             *string           `json:"fake_sleep"`
+		MaxTTL                *uint8            `json:"max_ttl"`
+		Attempts              *uint             `json:"attempts"`
+		SingleTimeout         *string           `json:"single_timeout"`
+		TTLCacheTTL           *string           `json:"ttl_cache_ttl"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -228,6 +230,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	p.SniffOverrideMode = tmp.SniffOverrideMode
 	p.ReplyFirst = tmp.ReplyFirst
 	p.TLS13Only = tmp.TLS13Only
+	p.DisableECHPassthrough = tmp.DisableECHPassthrough
 	p.Mode = tmp.Mode
 	p.DNSMode = tmp.DNSMode
 	p.OOB = tmp.OOB
@@ -391,6 +394,9 @@ func (p *Policy) String() string {
 	if p.TLS13Only.IsTrue() {
 		fields = append(fields, "tls13_only")
 	}
+	if p.DisableECHPassthrough.IsTrue() {
+		fields = append(fields, "disable_ech_passthrough")
+	}
 	fields = append(fields, p.Mode.String())
 	switch p.Mode {
 	case ModeTLSRF:
@@ -476,6 +482,9 @@ func mergePolicies(policies ...*Policy) *Policy {
 		}
 		if merged.TLS13Only.IsUnset() && !p.TLS13Only.IsUnset() {
 			merged.TLS13Only = p.TLS13Only
+		}
+		if merged.DisableECHPassthrough.IsUnset() && !p.DisableECHPassthrough.IsUnset() {
+			merged.DisableECHPassthrough = p.DisableECHPassthrough
 		}
 		if merged.Mode == ModeUnset && p.Mode != ModeUnset {
 			merged.Mode = p.Mode

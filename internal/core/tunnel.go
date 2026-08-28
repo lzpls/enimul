@@ -234,13 +234,16 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 		ts.logger.Info(msg)
 		mode = ModeDirect
 	} else if hasECH {
-		msg := []any{"ECH detected ", "(SNI=", record[sniStart : sniStart+sniLen], "), ignored"}
 		if ts.fromSNIProxy {
-			ts.logger.Error(msg...)
+			ts.logger.Error("ECH detected (SNI=", record[sniStart:sniStart+sniLen], "), ignored")
 			return
 		}
-		ts.logger.Info(msg...)
-		mode = ModeDirect
+		if ts.p.DisableECHPassthrough.IsTrue() {
+			ts.logger.Info("ECH detected (SNI=", record[sniStart:sniStart+sniLen], ")")
+		} else {
+			ts.logger.Info("ECH detected (SNI=", record[sniStart:sniStart+sniLen], "), ignored")
+			mode = ModeDirect
+		}
 	} else if sniStr := string(record[sniStart : sniStart+sniLen]); ts.fromSNIProxy || ts.originHost != sniStr {
 		if ts.fromSNIProxy {
 			ts.logger.Info("SNI: ", sniStr)

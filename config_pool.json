@@ -126,6 +126,7 @@
     "connect_timeout": "10s",
     "dial_delay": "300ms",
     "tls13_only": false,
+    "disable_ech_passthrough": false,
     "http_status": 0,
     "mode": "tls-rf",
     "minor_ver": 4,
