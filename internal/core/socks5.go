@@ -166,6 +166,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		domainBytes, err := readN(cliConn, buf[:lenByte[0]])
 		if err != nil {
 			logger.Error("Read domain address: ", err)
+			return
 		}
 		originHost = string(domainBytes)
 	default:
