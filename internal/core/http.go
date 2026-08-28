@@ -245,8 +245,8 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 		http.Error(w, status502, http.StatusBadGateway)
 		return
 	}
-	logger.Info("Start forwarding")
 	defer resp.Body.Close()
+	logger.Info("Start forwarding")
 
 	maps.Copy(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
