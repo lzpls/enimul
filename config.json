@@ -21,6 +21,7 @@
     "min_rtt": "",
     "wait_timeout": "400ms",
     "udp_size": 4096,
+    //"qtype2": "NS",
     "singleflight": true,
     "disable_cache": false,
     "cache_capacity": 4096,

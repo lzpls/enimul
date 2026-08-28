@@ -33,6 +33,7 @@ type dnsFields = struct {
 	cache          *freelru.ShardedLRU[string, *dial.Dst]
 	resolveGroup   *singleflight.Group[string, *dial.Dst]
 	edns0SubnetOpt *dns.OPT
+	qtype2         uint16
 }
 
 type DNSConfig struct {
@@ -47,6 +48,7 @@ type DNSConfig struct {
 	ClientTimeout string `json:"client_timeout"`
 	WaitTimeout   string `json:"wait_timeout"`
 	MinRTT        string `json:"min_rtt"`
+	Qtype2        string `json:"qtype2"`
 
 	DoHOutbound string `json:"doh_outbound"`
 }
@@ -75,6 +77,14 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			}
 			if cli.Timeout <= 0 {
 				return E.New("dns.client_timeout must be greater than 0")
+			}
+		}
+
+		if conf.Qtype2 != "" {
+			var ok bool
+			c.dns.qtype2, ok = dns.StringToType[conf.Qtype2]
+			if !ok {
+				return fmt.Errorf("invalid dns.second_record_type %q", conf.Qtype2)
 			}
 		}
 
@@ -347,6 +357,33 @@ func pickAAAARecords(answer []dns.RR) []net.IP {
 	return ips
 }
 
+func (c *Core) dnsMsgSetQuestion(msg *dns.Msg, fqdn string, qtype uint16) {
+	msg.Id = dns.Id()
+	msg.RecursionDesired = true
+	if c.dns.qtype2 == 0 {
+		msg.Question = []dns.Question{
+			{
+				Name:   fqdn,
+				Qtype:  qtype,
+				Qclass: dns.ClassINET,
+			},
+		}
+	} else {
+		msg.Question = []dns.Question{
+			{
+				Name:   fqdn,
+				Qtype:  qtype,
+				Qclass: dns.ClassINET,
+			},
+			{
+				Name:   fqdn,
+				Qtype:  c.dns.qtype2,
+				Qclass: dns.ClassINET,
+			},
+		}
+	}
+}
+
 func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ip net.IP, _ error) {
 	switch mode {
 	case DNSModeIPv4Only:
@@ -359,7 +396,7 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 		}
 	case DNSModePreferIPv4:
 		if ip = pickFirstARecord(ans); ip == nil {
-			msg.SetQuestion(domain, dns.TypeAAAA)
+			c.dnsMsgSetQuestion(msg, domain, dns.TypeAAAA)
 			resp, err2 := c.dns.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
@@ -373,7 +410,7 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 		}
 	case DNSModePreferIPv6:
 		if ip = pickFirstAAAARecord(ans); ip == nil {
-			msg.SetQuestion(domain, dns.TypeA)
+			c.dnsMsgSetQuestion(msg, domain, dns.TypeA)
 			resp, err2 := c.dns.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
@@ -401,7 +438,7 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 		}
 	case DNSModeMultiPreferIPv4:
 		if ips = pickARecords(ans); ips == nil {
-			msg.SetQuestion(domain, dns.TypeAAAA)
+			c.dnsMsgSetQuestion(msg, domain, dns.TypeAAAA)
 			resp, err2 := c.dns.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
@@ -415,7 +452,7 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 		}
 	case DNSModeMultiPreferIPv6:
 		if ips = pickAAAARecords(ans); ips == nil {
-			msg.SetQuestion(domain, dns.TypeA)
+			c.dnsMsgSetQuestion(msg, domain, dns.TypeA)
 			resp, err2 := c.dns.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
@@ -436,9 +473,9 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 	fqdn := dns.Fqdn(domain)
 	switch mode {
 	case DNSModePreferIPv4, DNSModeIPv4Only, DNSModeMultiPreferIPv4, DNSModeMultiIPv4Only:
-		msg.SetQuestion(fqdn, dns.TypeA)
+		c.dnsMsgSetQuestion(msg, fqdn, dns.TypeA)
 	case DNSModePreferIPv6, DNSModeIPv6Only, DNSModeMultiPreferIPv6, DNSModeMultiIPv6Only:
-		msg.SetQuestion(fqdn, dns.TypeAAAA)
+		c.dnsMsgSetQuestion(msg, fqdn, dns.TypeAAAA)
 	}
 	if c.dns.edns0SubnetOpt != nil {
 		msg.Extra = []dns.RR{c.dns.edns0SubnetOpt}
