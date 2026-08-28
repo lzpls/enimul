@@ -18,8 +18,6 @@ type networkInterface struct {
 
 type networkInterfaces []networkInterface
 
-var errNoInterface = E.New("no interface detected")
-
 func getFilteredInterfaces() (networkInterfaces, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -71,7 +69,7 @@ func getFilteredInterfaces() (networkInterfaces, error) {
 		})
 	}
 	if len(interfaces) == 0 {
-		return nil, errNoInterface
+		return nil, E.New("no interface detected")
 	}
 	return interfaces, nil
 }
