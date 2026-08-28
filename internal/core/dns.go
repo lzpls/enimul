@@ -27,7 +27,7 @@ type DNSClient interface {
 
 type dnsExchangeFunc = func(req *dns.Msg) (resp *dns.Msg, err error)
 
-type dnsFields = struct {
+type dnsFields struct {
 	client         DNSClient
 	exchange       dnsExchangeFunc
 	cache          *freelru.ShardedLRU[string, *dial.Dst]

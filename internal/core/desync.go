@@ -19,7 +19,7 @@ import (
 	"github.com/lzpls/enimul/internal/singleflight"
 )
 
-type ttlProbingFields = struct {
+type ttlProbingFields struct {
 	calc         func(int) (int, error)
 	cache        *freelru.ShardedLRU[netip.Addr, int]
 	probingGroup *singleflight.Group[netip.AddrPort, int]
