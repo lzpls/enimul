@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -89,11 +90,14 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 	c.ipv6Matcher = addrtrie.NewIPv6Trie[*Policy]()
 	for patterns, policy := range conf.IpPolicies.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
-			for _, ipOrNet := range expandPattern(elem) {
-				if isIPv6(ipOrNet) {
-					c.ipv6Matcher.Insert(ipOrNet, &policy)
+			for _, s := range expandPattern(elem) {
+				if isIPv6(s) {
+					err = c.ipv6Matcher.Insert(s, &policy)
 				} else {
-					c.ipv4Matcher.Insert(ipOrNet, &policy)
+					err = c.ipv4Matcher.Insert(s, &policy)
+				}
+				if err != nil {
+					return "", "", "", fmt.Errorf("invalid ip/cidr %q in %q: %w", s, patterns, err)
 				}
 			}
 		}
