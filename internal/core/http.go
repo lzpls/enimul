@@ -17,7 +17,7 @@ const (
 	status502 = "502 Bad Gateway"
 )
 
-var defaultHTTPTransport = http.DefaultTransport.(*http.Transport)
+var defaultHTTPTransport = http.DefaultTransport.(*http.Transport).Clone()
 
 func init() { defaultHTTPTransport.Proxy = nil }
 
