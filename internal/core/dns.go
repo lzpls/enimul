@@ -55,14 +55,14 @@ type DNSConfig struct {
 
 func (c *Core) setDNS(conf DNSConfig) error {
 	if conf.Addr == "" {
-		return E.New("dns.addr cannot be empty")
+		return E.New("addr cannot be empty")
 	}
 
 	addr := conf.Addr
 	switch conf.Type {
 	case "", "udp": // default
 		if _, err := netip.ParseAddrPort(addr); err != nil {
-			return E.WithStr("invalid dns.addr", err)
+			return E.WithStr("invalid addr", err)
 		}
 
 		var cli dns.Client
@@ -73,10 +73,10 @@ func (c *Core) setDNS(conf DNSConfig) error {
 		if conf.ClientTimeout != "" {
 			cli.Timeout, err = time.ParseDuration(conf.ClientTimeout)
 			if err != nil {
-				return E.WithStr("invalid dns.client_timeout", err)
+				return E.WithStr("invalid client_timeout", err)
 			}
 			if cli.Timeout <= 0 {
-				return E.New("dns.client_timeout must be greater than 0")
+				return E.New("client_timeout must be greater than 0")
 			}
 		}
 
@@ -84,7 +84,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			var ok bool
 			c.dns.qtype2, ok = dns.StringToType[conf.Qtype2]
 			if !ok {
-				return fmt.Errorf("invalid dns.second_record_type %q", conf.Qtype2)
+				return fmt.Errorf("invalid qtype2 %q", conf.Qtype2)
 			}
 		}
 
@@ -96,19 +96,19 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			if conf.WaitTimeout != "" {
 				waitTimeout, err = time.ParseDuration(conf.WaitTimeout)
 				if err != nil {
-					return E.WithStr("invalid dns.wait_timeout", err)
+					return E.WithStr("invalid wait_timeout", err)
 				}
 				if waitTimeout <= 0 {
-					return E.New("dns.wait_timeout must be greater than 0")
+					return E.New("wait_timeout must be greater than 0")
 				}
 			}
 			if conf.MinRTT != "" {
 				minRTT, err = time.ParseDuration(conf.MinRTT)
 				if err != nil {
-					return E.WithStr("invalid dns.min_rtt", err)
+					return E.WithStr("invalid min_rtt", err)
 				}
 				if minRTT <= 0 {
-					return E.New("dns.min_rtt must be greater than 0")
+					return E.New("min_rtt must be greater than 0")
 				}
 			}
 			dnsClient = &antiHijackDNSClient{
@@ -120,12 +120,12 @@ func (c *Core) setDNS(conf DNSConfig) error {
 		c.dns.exchange = buildDNSExchangeFunc(dnsClient, addr)
 	case "tcp":
 		if _, err := netip.ParseAddrPort(addr); err != nil {
-			return E.WithStr("invalid dns.addr", err)
+			return E.WithStr("invalid addr", err)
 		}
 		c.dns.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp"}, addr)
 	case "tls":
 		if _, err := netip.ParseAddrPort(addr); err != nil {
-			return E.WithStr("invalid dns.addr", err)
+			return E.WithStr("invalid addr", err)
 		}
 		c.dns.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp-tls"}, addr)
 	case "https":
@@ -152,15 +152,15 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			switch proxyURL.Scheme {
 			case "http", "https", "socks5", "socks5h":
 			case "":
-				return E.New("proxy url scheme cannot be empty")
+				return E.New("proxy URL scheme cannot be empty")
 			default:
-				return fmt.Errorf("invalid proxy url scheme: %q", proxyURL.Scheme)
+				return fmt.Errorf("invalid proxy URL scheme: %q", proxyURL.Scheme)
 			}
 			transport.Proxy = http.ProxyURL(proxyURL)
 		}
 		c.dns.exchange = buildDoHExchangeFunc(&http.Client{Transport: transport}, addr)
 	default:
-		return fmt.Errorf("unknown dns.type: %q", conf.Type)
+		return fmt.Errorf("unknown type: %q", conf.Type)
 	}
 
 	if conf.SingleFlight {
