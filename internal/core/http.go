@@ -38,10 +38,9 @@ func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
-	}
-	if listenAddr == "" {
-		F.Println("HTTP bind address is not specified")
-		return
+		if listenAddr == "" {
+			return
+		}
 	}
 	if listenAddr == "none" {
 		return

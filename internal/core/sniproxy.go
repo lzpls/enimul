@@ -14,8 +14,11 @@ func (c *Core) SNIServe(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
+		if listenAddr == "" {
+			return
+		}
 	}
-	if listenAddr == "" || listenAddr == "none" {
+	if listenAddr == "none" {
 		return
 	}
 

@@ -26,10 +26,9 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 	listenAddr := cmdAddr
 	if listenAddr == "" {
 		listenAddr = configAddr
-	}
-	if listenAddr == "" {
-		F.Println("SOCKS5 bind address is not specified")
-		return
+		if listenAddr == "" {
+			return
+		}
 	}
 	if listenAddr == "none" {
 		return
