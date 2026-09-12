@@ -1,4 +1,4 @@
-//go:build android && !cgo
+//go:build android && !cgo && !without_tz
 
 package platform
 
