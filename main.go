@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"runtime"
 	"sync"
@@ -11,11 +12,11 @@ import (
 )
 
 func main() {
-	F.Println("lzpls/enimul", core.Version)
-	F.Println()
+	fmt.Println("lzpls/enimul", core.Version)
+	fmt.Println()
 	flag.Usage = func() {
 		flag.PrintDefaults()
-		F.Println()
+		fmt.Println()
 		showLicense()
 	}
 	confPath := flag.String("c", "", "Config file path (override environment variable ENIMUL_CONFIG_FILE)")
@@ -43,7 +44,7 @@ func main() {
 	instance := new(core.Core)
 	configSocks5Addr, configHTTPAddr, configSNIAddr, err := instance.LoadConfig(configPath, *disallowUnknownFields)
 	if err != nil {
-		F.Println("Failed to load config:", err)
+		F.Errln("Failed to load config:", err)
 		return
 	}
 
@@ -61,7 +62,7 @@ func main() {
 }
 
 func showLicense() {
-	F.Println("This project is licensed under the GNU Affero General Public License v3.0.")
-	F.Println("Source code: https://github.com/lzpls/enimul")
-	F.Println("More: https://www.gnu.org/licenses/agpl-3.0.html")
+	fmt.Println(`This project is licensed under the GNU Affero General Public License v3.0.
+Source code: https://github.com/lzpls/enimul
+More: https://www.gnu.org/licenses/agpl-3.0.html`)
 }

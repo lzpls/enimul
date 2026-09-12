@@ -76,6 +76,6 @@ func Uint[T uint | uint8 | uint16 | uint32 | uint64](v T) string {
 	return strconv.FormatUint(uint64(v), 10)
 }
 
-func Println(args ...any) { fmt.Fprintln(os.Stderr, args...) }
+func Errln(a ...any) { fmt.Fprintln(os.Stderr, a...) }
 
-func Printf(msg string, args ...any) { fmt.Fprintf(os.Stderr, msg, args...) }
+func Errf(format string, a ...any) { fmt.Fprintf(os.Stderr, format, a...) }

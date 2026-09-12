@@ -20,7 +20,7 @@ type (
 )
 
 func (c *Core) setTTLProbing(TTLProbingConfig) error {
-	F.Println("Warning:", errTTLDNotSupported)
+	F.Errln("Warning:", errTTLDNotSupported)
 	return nil
 }
 

@@ -32,7 +32,7 @@ func getFilteredInterfaces() (networkInterfaces, error) {
 
 		addrs, err := iface.Addrs()
 		if err != nil {
-			F.Printf("Get addresses for interface %s: %v", iface.Name, err)
+			F.Errf("Get addresses for interface %s: %v\n", iface.Name, err)
 			continue
 		}
 
