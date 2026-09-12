@@ -48,7 +48,7 @@ func (c *Core) HTTPServe(cmdAddr, configAddr string) {
 	}
 
 	logger := c.newLogger("H[00000]")
-	ln, err := net.Listen("tcp", listenAddr)
+	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start HTTP proxy server: ", err)
 		return
