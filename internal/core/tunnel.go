@@ -90,7 +90,7 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 	forward(ts.logger, ts.cliConn, ts.dstConn, ts.originHost)
 }
 
-func drainBuffered(logger log.Logger, br *bufio.Reader, dst net.Conn) bool {
+func drainBuffered(logger log.Logger, br *bufio.Reader, dst *net.TCPConn) bool {
 	if n := br.Buffered(); n > 0 {
 		buf, err := br.Peek(n)
 		if err != nil {
@@ -364,7 +364,7 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 	return true
 }
 
-func checkTLS13Only(logger log.Logger, isTLS13 bool, p *Policy, conn net.Conn, prtVer []byte) (ok bool) {
+func checkTLS13Only(logger log.Logger, isTLS13 bool, p *Policy, conn *net.TCPConn, prtVer []byte) (ok bool) {
 	if !isTLS13 && p.TLS13Only.IsTrue() {
 		logger.Info("Connection blocked: supported_version missing from ClientHello")
 		sendTLSAlert(logger, conn, prtVer, tlsAlertProtocolVersion, tlsAlertLevelFatal)
@@ -379,7 +379,7 @@ const (
 	tlsAlertProtocolVersion byte = 49
 )
 
-func sendTLSAlert(logger log.Logger, conn net.Conn, prtVer []byte, desc byte, level byte) {
+func sendTLSAlert(logger log.Logger, conn *net.TCPConn, prtVer []byte, desc byte, level byte) {
 	_, err := conn.Write([]byte{0x15, prtVer[0], prtVer[1], 0x0, 0x2, level, desc})
 	if err != nil {
 		logger.Error("Send TLS alert: ", err)

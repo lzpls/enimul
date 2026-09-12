@@ -63,12 +63,12 @@ func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
 	}
 }
 
-func readN(conn net.Conn, buf []byte) ([]byte, error) {
+func readN(conn *net.TCPConn, buf []byte) ([]byte, error) {
 	_, err := io.ReadFull(conn, buf)
 	return buf, err
 }
 
-func sendReply(logger log.Logger, conn net.Conn, reply [10]byte) bool {
+func sendReply(logger log.Logger, conn *net.TCPConn, reply [10]byte) bool {
 	if _, err := conn.Write(reply[:]); err != nil {
 		logger.Error("Send SOCKS5 reply: ", err)
 		return false

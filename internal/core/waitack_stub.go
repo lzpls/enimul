@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func waitForAck(_ bool, _ net.Conn, delay time.Duration) error {
+func waitForAck(_ bool, _ *net.TCPConn, delay time.Duration) error {
 	time.Sleep(delay)
 	return nil
 }

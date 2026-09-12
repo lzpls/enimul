@@ -28,6 +28,6 @@ func (c *Core) getFakeTTL(log.Logger, *Policy, netip.AddrPort) (int, error) {
 	return unsetInt, errTTLDNotSupported
 }
 
-func desyncSend(net.Conn, []byte, int, int, int, time.Duration) error {
+func desyncSend(*net.TCPConn, []byte, int, int, int, time.Duration) error {
 	return errTTLDNotSupported
 }

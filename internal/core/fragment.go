@@ -18,7 +18,7 @@ func findLastDotOrMidPos(data []byte, sniStart, sniLen int) int {
 	return sniStart + subIdx
 }
 
-func sendRecords(conn net.Conn, clientHello []byte,
+func sendRecords(conn *net.TCPConn, clientHello []byte,
 	offset, length, records, segments int, minorVersion Byte,
 	oob, oobex, waitForAckEnabled bool,
 	interval time.Duration) error {

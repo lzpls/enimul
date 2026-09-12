@@ -246,7 +246,7 @@ func (c *Core) probeMinimumReachableTTL(
 }
 
 func desyncSend(
-	conn net.Conn,
+	conn *net.TCPConn,
 	record []byte, sniStart, sniLen int,
 	fakeTTL int, fakeSleep time.Duration,
 ) error {

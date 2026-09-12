@@ -13,7 +13,7 @@ import (
 
 // Modified from https://github.com/SagerNet/sing-box/blob/83b73048ff772b919af18653b78ffeaa2d48b66e/common/tlsfragment/wait_linux.go
 
-func waitForAck(enabled bool, conn net.Conn, delay time.Duration) error {
+func waitForAck(enabled bool, conn *net.TCPConn, delay time.Duration) error {
 	if !enabled {
 		time.Sleep(delay)
 		return nil

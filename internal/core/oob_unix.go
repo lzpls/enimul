@@ -9,7 +9,7 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 )
 
-func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
+func sendWithOOB(conn *net.TCPConn, data []byte, oob byte) error {
 	// Tested on Android; did not work as expected.
 	rawConn, err := getRawConn(conn)
 	if err != nil {

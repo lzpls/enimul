@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func sendWithOOB(conn net.Conn, data []byte, oob byte) error {
+func sendWithOOB(conn *net.TCPConn, data []byte, oob byte) error {
 	rawConn, err := getRawConn(conn)
 	if err != nil {
 		return err
