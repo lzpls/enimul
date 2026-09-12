@@ -75,7 +75,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 
 	ips, err := parseIPList(tmp.IPs, tmp.ExcludedIPs)
 	if err != nil {
-		return err
+		return E.WithStr("parse ips", err)
 	}
 	if len(ips) == 0 {
 		return E.New("no valid IPs after parsing")
@@ -138,7 +138,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 		}
 		switch single[:1] {
 		case resolvePrefix, noRedirectPrefix, ipPoolTagPrefix:
-			return fmt.Errorf("invalid fallback_ip: %q", tmp.FallbackIP.Single())
+			return fmt.Errorf("invalid fallback_ip %q", tmp.FallbackIP.Single())
 		}
 	}
 	p.fallbackIP = tmp.FallbackIP
@@ -206,7 +206,7 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 					unmappedAddr := addr.Unmap()
 					if !isExcluded(unmappedAddr) {
 						if len(ips) >= maxIPPoolSize {
-							return nil, fmt.Errorf("CIDR %s exceeds max pool size (%d)", s, maxIPPoolSize)
+							return nil, fmt.Errorf("CIDR %q exceeds max pool size (%d)", s, maxIPPoolSize)
 						}
 						ips = append(ips, unmappedAddr)
 					}
@@ -222,14 +222,14 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 
 			addrs, err := net.LookupIP(s)
 			if err != nil {
-				return nil, fmt.Errorf("DNS lookup failed for %q: %w", s, err)
+				return nil, err
 			}
 			for _, ip := range addrs {
 				if addr, ok := netip.AddrFromSlice(ip); ok && addr.IsValid() {
 					addr = addr.Unmap()
 					if !isExcluded(addr) {
 						if len(ips) >= maxIPPoolSize {
-							return nil, fmt.Errorf("DNS resolution for %s exceeds max pool size", s)
+							return nil, fmt.Errorf("DNS resolution for %q exceeds max pool size", s)
 						}
 						ips = append(ips, addr)
 					}
