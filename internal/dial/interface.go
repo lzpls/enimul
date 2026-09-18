@@ -10,10 +10,10 @@ import (
 )
 
 type networkInterface struct {
-	index   int
-	name    string
-	ipv4    net.IP
-	ipv6    net.IP
+	index int
+	name  string
+	ipv4  net.IP
+	ipv6  net.IP
 }
 
 type networkInterfaces []networkInterface
@@ -62,10 +62,10 @@ func getFilteredInterfaces() (networkInterfaces, error) {
 		}
 
 		interfaces = append(interfaces, networkInterface{
-			index:   iface.Index,
-			name:    iface.Name,
-			ipv4:    ipv4,
-			ipv6:    ipv6,
+			index: iface.Index,
+			name:  iface.Name,
+			ipv4:  ipv4,
+			ipv6:  ipv6,
 		})
 	}
 	if len(interfaces) == 0 {

@@ -12,7 +12,6 @@ import (
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/log"
-	"github.com/lzpls/enimul/internal/orderedmap"
 	_ "github.com/lzpls/enimul/internal/platform"
 )
 
@@ -24,7 +23,7 @@ type Core struct {
 	dialer        *dial.Dialer
 	dns           dnsFields
 	ttl           ttlProbingFields
-	ipPools       *orderedmap.Map[*IPPool]
+	ipPools       map[string]*IPPool
 	defaultPolicy Policy
 	hostsMatcher  *addrtrie.DomainMatcher[*dial.Dst]
 	domainMatcher *addrtrie.DomainMatcher[*Policy]

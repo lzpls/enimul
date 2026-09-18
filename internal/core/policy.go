@@ -550,10 +550,6 @@ const (
 	resolvePrefix    = "?"
 )
 
-func isIPv6(ip string) bool {
-	return strings.Contains(ip, ":")
-}
-
 func (c *Core) getIPPolicy(ip netip.Addr) (*Policy, bool) {
 	if ip.Unmap().Is6() {
 		return c.ipv6Matcher.Find(ip)

@@ -410,11 +410,8 @@ func (p *IPPool) Get() *dial.Dst {
 }
 
 func (c *Core) getIPPool(tag string) (*IPPool, error) {
-	if c.ipPools == nil || c.ipPools.Len() == 0 {
-		return nil, E.New("no ip pools")
-	}
-	if ipPool, exists := c.ipPools.Get(tag); exists {
-		return ipPool, nil
+	if pool, ok := c.ipPools[tag]; ok {
+		return pool, nil
 	}
 	return nil, E.New("ip pool " + tag + " does not exist")
 }

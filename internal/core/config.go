@@ -24,7 +24,7 @@ type Config struct {
 	OutboundBinding  dial.BindingOption       `json:"outbound_binding"`
 	DNSConfig        DNSConfig                `json:"dns"`
 	TTLProbingConfig TTLProbingConfig         `json:"ttl_probing"`
-	IPPools          orderedmap.Map[*IPPool]  `json:"ip_pools"`
+	IPPools          map[string]*IPPool       `json:"ip_pools"`
 	Hosts            orderedmap.Map[dial.Dst] `json:"hosts"`
 	DefaultPolicy    Policy                   `json:"default_policy"`
 	DomainPolicies   orderedmap.Map[Policy]   `json:"domain_policies"`
@@ -59,9 +59,9 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 		return anErr("create dialer", err)
 	}
 
-	if conf.IPPools.Len() > 0 {
-		c.ipPools = &conf.IPPools
-		for tag, pool := range c.ipPools.All() {
+	if len(conf.IPPools) > 0 {
+		c.ipPools = conf.IPPools
+		for tag, pool := range c.ipPools {
 			pool.Init(c.newLogger("P["+tag+"]"), c.dialer)
 		}
 	}
@@ -91,7 +91,7 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 	for patterns, policy := range conf.IpPolicies.All() {
 		for elem := range strings.SplitSeq(patterns, ";") {
 			for _, s := range expandPattern(elem) {
-				if isIPv6(s) {
+				if strings.Contains(s, ":") {
 					err = c.ipv6Matcher.Insert(s, &policy)
 				} else {
 					err = c.ipv4Matcher.Insert(s, &policy)
@@ -115,68 +115,52 @@ func (c *Core) LoadConfig(filePath string, disallowUnknownFields bool) (string, 
 }
 
 func expandPattern(s string) []string {
-	left := -1
-	for i := range s {
-		if s[i] == '(' {
-			left = i
-			break
-		}
-	}
+	const (
+		start = '('
+		end   = ')'
+		sep   = "|"
+	)
 
+	left := strings.IndexByte(s, start)
 	if left == -1 {
-		return splitByPipe(s)
+		return strings.Split(s, sep)
 	}
 
 	right := -1
 	depth := 1
+loop:
 	for i := left + 1; i < len(s); i++ {
-		if s[i] == '(' {
+		switch s[i] {
+		case start:
 			depth++
-		} else if s[i] == ')' {
+		case end:
 			depth--
 			if depth == 0 {
 				right = i
-				break
+				break loop
 			}
 		}
 	}
 
 	if right == -1 {
-		return splitByPipe(s)
+		return strings.Split(s, sep)
 	}
 
 	prefix := s[:left]
 	inner := s[left+1 : right]
 	suffix := s[right+1:]
 
-	parts := splitByPipe(inner)
-
+	parts := strings.Split(inner, sep)
 	suffixResults := expandPattern(suffix)
 
-	result := make([]string, 0, len(parts)*len(suffixResults))
+	result := make([]string, len(parts)*len(suffixResults))
+	i := 0
 	for _, part := range parts {
 		for _, suff := range suffixResults {
-			result = append(result, prefix+part+suff)
+			result[i] = prefix + part + suff
+			i++
 		}
 	}
 
-	return result
-}
-
-func splitByPipe(s string) []string {
-	if s == "" {
-		return []string{""}
-	}
-	result := []string{}
-	curr := ""
-	for i := range s {
-		if s[i] == '|' {
-			result = append(result, curr)
-			curr = ""
-		} else {
-			curr += string(s[i])
-		}
-	}
-	result = append(result, curr)
 	return result
 }

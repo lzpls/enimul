@@ -15,6 +15,8 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 )
 
+var emptyDialer net.Dialer
+
 type Dialer struct {
 	logger    log.Logger
 	localIPv4 atomic.Pointer[net.TCPAddr]
@@ -71,7 +73,7 @@ func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portS
 	port := uint16(p)
 	if len(addrs) == 1 {
 		ip := addrs[0].Addr().Unmap()
-		return new(net.Dialer).DialTCP(ctx, "tcp", d.GetLocalAddr(ip.Is6()), netip.AddrPortFrom(ip, port))
+		return emptyDialer.DialTCP(ctx, "tcp", d.GetLocalAddr(ip.Is6()), netip.AddrPortFrom(ip, port))
 	}
 
 	if dialDelay <= 0 {
@@ -85,8 +87,6 @@ func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portS
 	defer cancel()
 
 	var wg sync.WaitGroup
-	var dialer net.Dialer
-
 	wg.Go(func() {
 		var prevFailed chan struct{}
 
@@ -103,22 +103,20 @@ func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portS
 				}
 			}
 
-			select {
-			case <-dialCtx.Done():
+			if dialCtx.Err() != nil {
 				return
-			default:
 			}
 
-			currFailed := make(chan struct{}, 1)
+			currFailed := make(chan struct{})
 			wg.Go(func() {
 				ip := addr.Addr().Unmap()
 				if addr.Port() == 0 {
 					addr = netip.AddrPortFrom(ip, port)
 				}
-				conn, err := dialer.DialTCP(dialCtx, "tcp", d.GetLocalAddr(ip.Is6()), addr)
+				conn, err := emptyDialer.DialTCP(dialCtx, "tcp", d.GetLocalAddr(ip.Is6()), addr)
 
 				if err != nil {
-					currFailed <- struct{}{}
+					close(currFailed)
 					errCh <- err
 					return
 				}
@@ -295,7 +293,9 @@ func detectByDial(network, target string, timeout time.Duration) (net.IP, string
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	conn, err := net.DialTimeout(network, target, timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := emptyDialer.DialContext(ctx, network, target)
 	if err != nil {
 		return nil, "", E.WithStr("dial detect", err)
 	}
