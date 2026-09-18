@@ -203,7 +203,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	var dstConn *net.TCPConn
 	port := F.Uint(dstPort)
 	if !policy.ReplyFirst.IsTrue() {
-		dstConn, err = c.dialer.DialTCPTimeoutMulti(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
+		dstConn, err = c.dialer.DialTimeout(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)

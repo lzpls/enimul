@@ -35,7 +35,7 @@ func (d *Dialer) GetLocalAddr(isIPv6 bool) netip.AddrPort {
 	return d.localIPv4.Load().AddrPort()
 }
 
-func (d *Dialer) DialContextMulti(ctx context.Context, dst *Dst, port string, dialDelay time.Duration) (*net.TCPConn, error) {
+func (d *Dialer) DialContext(ctx context.Context, dst *Dst, port string, dialDelay time.Duration) (*net.TCPConn, error) {
 	if dst.IsMulti() {
 		return d.dialParallel(ctx, dst.multi, port, dialDelay)
 	}
@@ -57,17 +57,17 @@ func (d *Dialer) DialContextMulti(ctx context.Context, dst *Dst, port string, di
 	return conn.(*net.TCPConn), nil
 }
 
-func (d *Dialer) DialTimeoutMulti(ctx context.Context, dst *Dst, port string, timeout, dialDelay time.Duration) (*net.TCPConn, error) {
+func (d *Dialer) DialContextTimeout(ctx context.Context, dst *Dst, port string, timeout, dialDelay time.Duration) (*net.TCPConn, error) {
 	if timeout <= 0 {
 		timeout = defaultDialTimeout
 	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return d.DialContextMulti(timeoutCtx, dst, port, dialDelay)
+	return d.DialContext(timeoutCtx, dst, port, dialDelay)
 }
 
-func (d *Dialer) DialTCPTimeoutMulti(dst *Dst, port string, timeout, dialDelay time.Duration) (*net.TCPConn, error) {
-	return d.DialTimeoutMulti(context.Background(), dst, port, timeout, dialDelay)
+func (d *Dialer) DialTimeout(dst *Dst, port string, timeout, dialDelay time.Duration) (*net.TCPConn, error) {
+	return d.DialContextTimeout(context.Background(), dst, port, timeout, dialDelay)
 }
 
 func (d *Dialer) dialParallel(ctx context.Context, addrs []netip.AddrPort, portStr string, dialDelay time.Duration) (*net.TCPConn, error) {

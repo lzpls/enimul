@@ -699,7 +699,7 @@ brk:
 
 	if !isIPPool {
 		return func(ctx context.Context, _, _ string) (net.Conn, error) {
-			conn, err := c.dialer.DialTimeoutMulti(ctx, finalDst, dstPort, policy.ConnectTimeout, policy.DialDelay)
+			conn, err := c.dialer.DialContextTimeout(ctx, finalDst, dstPort, policy.ConnectTimeout, policy.DialDelay)
 			if err != nil {
 				return nil, err
 			}
@@ -713,7 +713,7 @@ brk:
 	}
 	if noRedirect || pool.multi {
 		return func(ctx context.Context, network, _ string) (net.Conn, error) {
-			conn, err := c.dialer.DialTimeoutMulti(ctx, pool.Get(), dstPort, policy.ConnectTimeout, policy.DialDelay)
+			conn, err := c.dialer.DialContextTimeout(ctx, pool.Get(), dstPort, policy.ConnectTimeout, policy.DialDelay)
 			if err != nil {
 				return nil, err
 			}
@@ -741,7 +741,7 @@ brk:
 		} else {
 			port = dstPort
 		}
-		conn, err := c.dialer.DialTimeoutMulti(ctx, final, port, p.ConnectTimeout, p.DialDelay)
+		conn, err := c.dialer.DialContextTimeout(ctx, final, port, p.ConnectTimeout, p.DialDelay)
 		if err != nil {
 			return nil, err
 		}

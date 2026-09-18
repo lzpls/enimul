@@ -44,7 +44,7 @@ func (c *Core) handleTunnel(ts *tunnelSession) {
 
 	if ts.p.Mode == ModeRaw {
 		if ts.dstConn == nil {
-			ts.dstConn, err = c.dialer.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
+			ts.dstConn, err = c.dialer.DialTimeout(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
 			if err != nil {
 				ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 				return
@@ -179,7 +179,7 @@ func (c *Core) handleHTTP(ts *tunnelSession, req *http.Request) (ok bool) {
 		return
 	}
 	if ts.dstConn == nil {
-		ts.dstConn, err = c.dialer.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
+		ts.dstConn, err = c.dialer.DialTimeout(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
 		if err != nil {
 			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			resp := &http.Response{
@@ -299,7 +299,7 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 				if sniPolicy.Port != 0 && sniPolicy.Port != unsetInt {
 					port = F.Int(sniPolicy.Port)
 				}
-				newConn, err := c.dialer.DialTCPTimeoutMulti(newDst, port, sniPolicy.ConnectTimeout, sniPolicy.DialDelay)
+				newConn, err := c.dialer.DialTimeout(newDst, port, sniPolicy.ConnectTimeout, sniPolicy.DialDelay)
 				if err == nil {
 					if ts.dstConn != nil {
 						ts.dstConn.Close()
@@ -319,7 +319,7 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 	}
 
 	if ts.dstConn == nil {
-		ts.dstConn, err = c.dialer.DialTCPTimeoutMulti(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
+		ts.dstConn, err = c.dialer.DialTimeout(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
 		if err != nil {
 			ts.logger.Error("Connection to ", ts.oldTarget, " failed: ", err)
 			return
