@@ -6,12 +6,9 @@ import (
 	"net"
 	"net/netip"
 	"strings"
-	"time"
 
 	E "github.com/lzpls/enimul/internal/errors"
 )
-
-const defaultDialDelay = 300 * time.Millisecond
 
 type Dst struct {
 	single      string

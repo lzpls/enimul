@@ -17,6 +17,11 @@ import (
 
 var emptyDialer net.Dialer
 
+const (
+	defaultDialTimeout = 10 * time.Second
+	defaultDialDelay   = 300 * time.Millisecond
+)
+
 type Dialer struct {
 	logger    log.Logger
 	localIPv4 atomic.Pointer[net.TCPAddr]
@@ -52,13 +57,16 @@ func (d *Dialer) DialContextMulti(ctx context.Context, dst *Dst, port string, di
 	return conn.(*net.TCPConn), nil
 }
 
-func (d *Dialer) DialTimeoutMulti(ctx context.Context, dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (*net.TCPConn, error) {
+func (d *Dialer) DialTimeoutMulti(ctx context.Context, dst *Dst, port string, timeout, dialDelay time.Duration) (*net.TCPConn, error) {
+	if timeout <= 0 {
+		timeout = defaultDialTimeout
+	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return d.DialContextMulti(timeoutCtx, dst, port, dialDelay)
 }
 
-func (d *Dialer) DialTCPTimeoutMulti(dst *Dst, port string, timeout time.Duration, dialDelay time.Duration) (*net.TCPConn, error) {
+func (d *Dialer) DialTCPTimeoutMulti(dst *Dst, port string, timeout, dialDelay time.Duration) (*net.TCPConn, error) {
 	return d.DialTimeoutMulti(context.Background(), dst, port, timeout, dialDelay)
 }
 
