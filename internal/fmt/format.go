@@ -78,4 +78,7 @@ func Uint[T uint | uint8 | uint16 | uint32 | uint64](v T) string {
 
 func Errln(a ...any) { fmt.Fprintln(os.Stderr, a...) }
 
-func Errf(format string, a ...any) { fmt.Fprintf(os.Stderr, format, a...) }
+func Errf(format string, a ...any) {
+	a = append(a, "\n")
+	fmt.Fprintf(os.Stderr, format, a...)
+}

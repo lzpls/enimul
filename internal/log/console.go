@@ -1,9 +1,7 @@
 package log
 
 import (
-	"fmt"
 	"io"
-	"os"
 	"sync"
 	"time"
 
@@ -61,9 +59,8 @@ func (l *consoleLogger) output(lvl Level, args []any) {
 	*bufp = F.Append(*bufp, args...)
 	*bufp = append(*bufp, '\n')
 
-	_, err := l.out.Write(*bufp)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "log: write failed:", err)
+	if _, err := l.out.Write(*bufp); err != nil {
+		F.Errln("log: write failed:", err)
 	}
 }
 

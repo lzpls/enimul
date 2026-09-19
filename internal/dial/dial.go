@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	E "github.com/lzpls/enimul/internal/errors"
+	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
 )
 
@@ -221,7 +221,7 @@ func NewDialer(logger log.Logger, o BindingOption) (*Dialer, error) {
 		} else {
 			selected, ok = interfaces.autoSelect(o.PreferredPrefix)
 			if !ok {
-				fmt.Fprintln(os.Stderr, "No interface with gateway detected")
+				F.Errln("No interface with gateway detected")
 				selected = interfaces.manualSelect()
 				zone = selected.name
 			}
