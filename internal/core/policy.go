@@ -292,10 +292,10 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	} else {
 		p.ConnectTimeout, err = time.ParseDuration(*tmp.ConnectTimeout)
 		if err != nil {
-			return fmt.Errorf("parse connect_timeout %s: %w", *tmp.ConnectTimeout, err)
+			return fmt.Errorf("parse connect_timeout %q: %w", *tmp.ConnectTimeout, err)
 		}
 		if p.ConnectTimeout <= 0 {
-			return fmt.Errorf("connect_timeout %s: must be greater than 0", *tmp.ConnectTimeout)
+			return fmt.Errorf("connect_timeout %q: must be greater than 0", *tmp.ConnectTimeout)
 		}
 	}
 
@@ -304,10 +304,10 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	} else {
 		p.DialDelay, err = time.ParseDuration(*tmp.DialDelay)
 		if err != nil {
-			return fmt.Errorf("parse dial_delay %s: %w", *tmp.DialDelay, err)
+			return fmt.Errorf("parse dial_delay %q: %w", *tmp.DialDelay, err)
 		}
 		if p.DialDelay <= 0 {
-			return fmt.Errorf("dial_delay %s: must be greater than 0", *tmp.DialDelay)
+			return fmt.Errorf("dial_delay %q: must be greater than 0", *tmp.DialDelay)
 		}
 	}
 
@@ -316,20 +316,20 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	} else {
 		p.SendInterval, err = time.ParseDuration(*tmp.SendInterval)
 		if err != nil {
-			return fmt.Errorf("parse send_interval %s: %w", *tmp.SendInterval, err)
+			return fmt.Errorf("parse send_interval %q: %w", *tmp.SendInterval, err)
 		}
 		if p.SendInterval < 0 {
-			return fmt.Errorf("send_interval %s: outside the valid range", *tmp.SendInterval)
+			return fmt.Errorf("send_interval %q: outside the valid range", *tmp.SendInterval)
 		}
 	}
 
 	if tmp.FakeSleep != nil {
 		p.FakeSleep, err = time.ParseDuration(*tmp.FakeSleep)
 		if err != nil {
-			return fmt.Errorf("parse fake_sleep %s: %w", *tmp.FakeSleep, err)
+			return fmt.Errorf("parse fake_sleep %q: %w", *tmp.FakeSleep, err)
 		}
 		if p.FakeSleep <= 0 {
-			return fmt.Errorf("fake_sleep %s: must be greater than 0", *tmp.FakeSleep)
+			return fmt.Errorf("fake_sleep %q: must be greater than 0", *tmp.FakeSleep)
 		}
 	}
 
@@ -338,10 +338,10 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	} else {
 		p.SingleTimeout, err = time.ParseDuration(*tmp.SingleTimeout)
 		if err != nil {
-			return fmt.Errorf("parse single_timeout %s: %w", *tmp.SingleTimeout, err)
+			return fmt.Errorf("parse single_timeout %q: %w", *tmp.SingleTimeout, err)
 		}
 		if p.SingleTimeout <= 0 {
-			return fmt.Errorf("single_timeout %s: must be greater than 0", *tmp.SingleTimeout)
+			return fmt.Errorf("single_timeout %q: must be greater than 0", *tmp.SingleTimeout)
 		}
 	}
 
@@ -350,10 +350,10 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	} else {
 		p.DNSCacheTTL, err = time.ParseDuration(*tmp.DNSCacheTTL)
 		if err != nil {
-			return fmt.Errorf("parse dns_cache_ttl %s: %w", *tmp.DNSCacheTTL, err)
+			return fmt.Errorf("parse dns_cache_ttl %q: %w", *tmp.DNSCacheTTL, err)
 		}
 		if p.DNSCacheTTL < 0 {
-			return fmt.Errorf("dns_cache_ttl %s: must be greater than -1", *tmp.DNSCacheTTL)
+			return fmt.Errorf("dns_cache_ttl %q: must be greater than -1", *tmp.DNSCacheTTL)
 		}
 	}
 
@@ -362,10 +362,10 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	} else {
 		p.TTLCacheTTL, err = time.ParseDuration(*tmp.TTLCacheTTL)
 		if err != nil {
-			return fmt.Errorf("parse ttl_cache_ttl %s: %w", *tmp.TTLCacheTTL, err)
+			return fmt.Errorf("parse ttl_cache_ttl %q: %w", *tmp.TTLCacheTTL, err)
 		}
 		if p.TTLCacheTTL < 0 {
-			return fmt.Errorf("ttl_cache_ttl %s: must be greater than -1", *tmp.TTLCacheTTL)
+			return fmt.Errorf("ttl_cache_ttl %q: must be greater than -1", *tmp.TTLCacheTTL)
 		}
 	}
 

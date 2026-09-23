@@ -116,7 +116,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 	if tmp.Timeout != "" {
 		timeout, err = time.ParseDuration(tmp.Timeout)
 		if err != nil || timeout <= 0 {
-			return fmt.Errorf("invalid timeout: %s", tmp.Timeout)
+			return fmt.Errorf("invalid timeout %q", tmp.Timeout)
 		}
 	}
 
@@ -124,7 +124,7 @@ func (p *IPPool) UnmarshalJSON(b []byte) error {
 	if tmp.UpdateInterval != "" {
 		updateInterval, err = time.ParseDuration(tmp.UpdateInterval)
 		if err != nil || updateInterval <= 0 {
-			return fmt.Errorf("invalid update_interval: %s", tmp.UpdateInterval)
+			return fmt.Errorf("invalid update_interval %q", tmp.UpdateInterval)
 		}
 	}
 
