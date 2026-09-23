@@ -58,12 +58,8 @@ func (c *Core) newLogger(prefix string) log.Logger {
 	return log.New(c.logOutput, prefix, c.logLevel)
 }
 
-func getRawConn(conn any) (syscall.RawConn, error) {
-	sc, ok := conn.(syscall.Conn)
-	if !ok {
-		return nil, E.New("not a syscall.Conn")
-	}
-	rawConn, err := sc.SyscallConn()
+func getRawConn[T syscall.Conn](conn T) (syscall.RawConn, error) {
+	rawConn, err := conn.SyscallConn()
 	return rawConn, E.WithStr("get raw conn", err)
 }
 
