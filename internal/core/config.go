@@ -125,23 +125,7 @@ func expandPattern(s string) []string {
 	if left == -1 {
 		return strings.Split(s, sep)
 	}
-
-	right := -1
-	depth := 1
-loop:
-	for i := left + 1; i < len(s); i++ {
-		switch s[i] {
-		case start:
-			depth++
-		case end:
-			depth--
-			if depth == 0 {
-				right = i
-				break loop
-			}
-		}
-	}
-
+	right := strings.IndexByte(s, end)
 	if right == -1 {
 		return strings.Split(s, sep)
 	}
