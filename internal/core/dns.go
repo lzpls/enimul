@@ -154,13 +154,13 @@ func (c *Core) setDNS(conf DNSConfig) error {
 			case "":
 				return E.New("proxy URL scheme cannot be empty")
 			default:
-				return fmt.Errorf("invalid proxy URL scheme: %q", proxyURL.Scheme)
+				return fmt.Errorf("invalid proxy URL scheme %q", proxyURL.Scheme)
 			}
 			transport.Proxy = http.ProxyURL(proxyURL)
 		}
 		c.dns.exchange = buildDoHExchangeFunc(&http.Client{Transport: transport}, addr)
 	default:
-		return fmt.Errorf("unknown type: %q", conf.Type)
+		return fmt.Errorf("unknown type %q", conf.Type)
 	}
 
 	if conf.SingleFlight {
@@ -314,7 +314,7 @@ func (m *DNSMode) UnmarshalJSON(data []byte) error {
 	case DNSModeNameMultiIPv6Only:
 		*m = DNSModeMultiIPv6Only
 	default:
-		return fmt.Errorf("invalid dns_mode: %q", s)
+		return fmt.Errorf("invalid dns_mode %q", s)
 	}
 	return nil
 }
