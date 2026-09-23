@@ -20,7 +20,7 @@ func waitForAck(enabled bool, conn *net.TCPConn, delay time.Duration) error {
 	}
 	rawConn, err := getRawConn(conn)
 	if err != nil {
-		return E.WithStr("wait for ACK", err)
+		return E.WithStr("wait for ack", err)
 	}
 	var innerErr error
 	rawCtrlErr := rawConn.Control(func(fd uintptr) {

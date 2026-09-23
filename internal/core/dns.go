@@ -175,7 +175,7 @@ func (c *Core) setDNS(conf DNSConfig) error {
 		hashFunc := func(s string) uint32 { return uint32(xxhash.Sum64String(s)) }
 		c.dns.cache, err = freelru.NewSharded[string, *dial.Dst](conf.CacheCapacity, hashFunc)
 		if err != nil {
-			return E.WithStr("init DNS cache", err)
+			return E.WithStr("init dns cache", err)
 		}
 	}
 

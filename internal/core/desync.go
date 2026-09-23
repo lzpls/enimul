@@ -51,7 +51,7 @@ func (c *Core) setTTLProbing(conf TTLProbingConfig) error {
 		var err error
 		c.ttl.cache, err = freelru.NewSharded[netip.Addr, int](conf.CacheCapacity, buildHashFunc[netip.Addr]())
 		if err != nil {
-			return E.WithStr("init TTL cache", err)
+			return E.WithStr("init ttl cache", err)
 		}
 	}
 	return nil

@@ -24,7 +24,7 @@ func sendWithNoise(
 	if err := rawConn.Control(func(raw uintptr) {
 		sockFD = int(raw)
 	}); err != nil {
-		return E.WithStr("raw control", err)
+		return E.WithStr("get fd", err)
 	}
 
 	var pipeFDs [2]int

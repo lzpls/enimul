@@ -38,7 +38,7 @@ func sendWithNoise(
 	if err := rawConn.Control(func(fd uintptr) {
 		sockHandle = windows.Handle(fd)
 	}); err != nil {
-		return E.WithStr("raw control", err)
+		return E.WithStr("get fd", err)
 	}
 
 	tmpFile, err := os.CreateTemp("", "")
