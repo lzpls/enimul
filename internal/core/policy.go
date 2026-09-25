@@ -241,7 +241,7 @@ func newPolicy(o *PolicyOptions) (*Policy, error) {
 		if *o.DialDelay <= 0 {
 			return nil, E.New("dial_delay must be positive")
 		}
-		p.DialDelay = o.ConnectTimeout.D()
+		p.DialDelay = o.DialDelay.D()
 	}
 
 	if o.SendInterval != nil {
