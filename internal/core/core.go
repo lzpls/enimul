@@ -14,7 +14,7 @@ import (
 	"github.com/lzpls/enimul/internal/orderedmap"
 )
 
-const Version = "v0.6.2"
+const Version = "v0.7.0-alpha.1"
 
 const maxConnID = 0xfffff
 
