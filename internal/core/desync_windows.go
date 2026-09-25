@@ -122,6 +122,9 @@ func sendWithNoise(
 		return E.WithStr("sync real data", err)
 	}
 
+	if _, err = tmpFile.Seek(0, io.SeekStart); err != nil {
+		return E.WithStr("seek start", err)
+	}
 	if err = windows.SetsockoptInt(
 		sockHandle, level, opt, defaultTTL,
 	); err != nil {
