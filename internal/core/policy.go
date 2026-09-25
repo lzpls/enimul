@@ -13,13 +13,11 @@ import (
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
+	"github.com/lzpls/enimul/internal/jsonx"
 	"github.com/lzpls/enimul/internal/log"
 )
 
-const (
-	unsetInt = -1
-	//unsetString = "\x00"
-)
+const unsetInt = -1
 
 type SniffOverrideMode uint8
 
@@ -115,56 +113,8 @@ func (m Mode) String() string {
 	return "unknown"
 }
 
-type TriBool uint8
-
-const (
-	BoolUnset TriBool = iota
-	BoolFalse
-	BoolTrue
-)
-
-func (b TriBool) IsTrue() bool { return b == BoolTrue }
-
-func (b TriBool) IsUnset() bool { return b == BoolUnset }
-
-func (b *TriBool) UnmarshalJSON(data []byte) error {
-	s := string(data)
-	switch s {
-	case "false":
-		*b = BoolFalse
-	case "true":
-		*b = BoolTrue
-	default:
-		return E.New("invalid bool: " + s)
-	}
-	return nil
-}
-
-type Byte struct {
-	b           byte
-	valid, zero bool
-}
-
-func (b Byte) IsUnset() bool { return !b.valid }
-
-func (b Byte) IsZero() bool { return b.IsUnset() || b.zero }
-
-func (b Byte) Byte() byte { return b.b }
-
-func (b *Byte) UnmarshalJSON(data []byte) error {
-	b.valid = true
-	if string(data) == "false" {
-		b.zero = true
-		return nil
-	}
-	if err := json.Unmarshal(data, &b.b); err != nil {
-		return err
-	}
-	return nil
-}
-
 type Policy struct {
-	ReplyFirst            TriBool
+	ReplyFirst            jsonx.Bool
 	SniffOverrideMode     SniffOverrideMode
 	DNSMode               DNSMode
 	DNSCacheTTL           time.Duration
@@ -174,16 +124,16 @@ type Policy struct {
 	MapTo                 dial.Dst
 	Port                  int
 	HttpStatus            int
-	TLS13Only             TriBool
-	DisableECHPassthrough TriBool
+	TLS13Only             jsonx.Bool
+	DisableECHPassthrough jsonx.Bool
 	Mode                  Mode
 
 	NumRecords   int
 	NumSegments  int
-	WaitForAck   TriBool
-	OOB          TriBool
-	OOBEx        TriBool
-	MinorVer     Byte
+	WaitForAck   jsonx.Bool
+	OOB          jsonx.Bool
+	OOBEx        jsonx.Bool
+	MinorVer     jsonx.Byte
 	SendInterval time.Duration
 
 	FakeTTL       int
@@ -194,267 +144,246 @@ type Policy struct {
 	TTLCacheTTL   time.Duration
 }
 
-func (p *Policy) UnmarshalJSON(data []byte) error {
-	var tmp struct {
-		SniffOverrideMode     SniffOverrideMode `json:"sniff_override"`
-		ReplyFirst            TriBool           `json:"reply_first"`
-		ConnectTimeout        *string           `json:"connect_timeout"`
-		DialDelay             *string           `json:"dial_delay"`
-		Host                  dial.Dst          `json:"host"`
-		MapTo                 dial.Dst          `json:"map_to"`
-		Port                  *uint16           `json:"port"`
-		DNSMode               DNSMode           `json:"dns_mode"`
-		DNSCacheTTL           *string           `json:"dns_cache_ttl"`
-		HttpStatus            *uint             `json:"http_status"`
-		TLS13Only             TriBool           `json:"tls13_only"`
-		DisableECHPassthrough TriBool           `json:"disable_ech_passthrough"`
-		Mode                  Mode              `json:"mode"`
-		NumRecords            *uint             `json:"num_records"`
-		NumSegments           *int              `json:"num_segs"`
-		WaitForAck            TriBool           `json:"wait_for_ack"`
-		OOB                   TriBool           `json:"oob"`
-		OOBEx                 TriBool           `json:"oob_ex"`
-		MinorVer              Byte              `json:"minor_ver"`
-		SendInterval          *string           `json:"send_interval"`
-		FakeTTL               *uint8            `json:"fake_ttl"`
-		FakeSleep             *string           `json:"fake_sleep"`
-		MaxTTL                *uint8            `json:"max_ttl"`
-		Attempts              *uint             `json:"attempts"`
-		SingleTimeout         *string           `json:"single_timeout"`
-		TTLCacheTTL           *string           `json:"ttl_cache_ttl"`
-	}
-	if err := json.Unmarshal(data, &tmp); err != nil {
-		return err
-	}
-
-	p.SniffOverrideMode = tmp.SniffOverrideMode
-	p.ReplyFirst = tmp.ReplyFirst
-	p.TLS13Only = tmp.TLS13Only
-	p.DisableECHPassthrough = tmp.DisableECHPassthrough
-	p.Mode = tmp.Mode
-	p.DNSMode = tmp.DNSMode
-	p.OOB = tmp.OOB
-	p.OOBEx = tmp.OOBEx
-	p.MinorVer = tmp.MinorVer
-	p.WaitForAck = tmp.WaitForAck
-	p.Host = tmp.Host
-	p.MapTo = tmp.MapTo
-
-	if tmp.Port == nil {
-		p.Port = unsetInt
-	} else {
-		p.Port = int(*tmp.Port)
-	}
-
-	if tmp.HttpStatus == nil {
-		p.HttpStatus = unsetInt
-	} else {
-		p.HttpStatus = int(*tmp.HttpStatus)
-	}
-
-	if tmp.NumRecords != nil {
-		if *tmp.NumRecords == 0 {
-			return E.New("num_records cannot be 0")
-		}
-		p.NumRecords = int(*tmp.NumRecords)
-	}
-
-	if tmp.NumSegments != nil {
-		if *tmp.NumSegments == 0 {
-			return E.New("num_segs cannot be 0")
-		}
-		p.NumSegments = *tmp.NumSegments
-	}
-
-	if tmp.FakeTTL == nil {
-		p.FakeTTL = unsetInt
-	} else {
-		p.FakeTTL = int(*tmp.FakeTTL)
-	}
-
-	if tmp.Attempts != nil {
-		if *tmp.Attempts == 0 {
-			return E.New("attempts cannot be 0")
-		}
-		p.Attempts = int(*tmp.Attempts)
-	}
-
-	if tmp.MaxTTL != nil {
-		if *tmp.MaxTTL == 0 {
-			return E.New("max_ttl cannot be 0")
-		}
-		p.MaxTTL = int(*tmp.MaxTTL)
-	}
-
-	var err error
-	if tmp.ConnectTimeout == nil {
-		p.ConnectTimeout = unsetInt
-	} else {
-		p.ConnectTimeout, err = time.ParseDuration(*tmp.ConnectTimeout)
-		if err != nil {
-			return fmt.Errorf("parse connect_timeout %q: %w", *tmp.ConnectTimeout, err)
-		}
-		if p.ConnectTimeout <= 0 {
-			return fmt.Errorf("connect_timeout %q: must be greater than 0", *tmp.ConnectTimeout)
-		}
-	}
-
-	if tmp.DialDelay == nil {
-		p.DialDelay = unsetInt
-	} else {
-		p.DialDelay, err = time.ParseDuration(*tmp.DialDelay)
-		if err != nil {
-			return fmt.Errorf("parse dial_delay %q: %w", *tmp.DialDelay, err)
-		}
-		if p.DialDelay <= 0 {
-			return fmt.Errorf("dial_delay %q: must be greater than 0", *tmp.DialDelay)
-		}
-	}
-
-	if tmp.SendInterval == nil {
-		p.SendInterval = unsetInt
-	} else {
-		p.SendInterval, err = time.ParseDuration(*tmp.SendInterval)
-		if err != nil {
-			return fmt.Errorf("parse send_interval %q: %w", *tmp.SendInterval, err)
-		}
-		if p.SendInterval < 0 {
-			return fmt.Errorf("send_interval %q: outside the valid range", *tmp.SendInterval)
-		}
-	}
-
-	if tmp.FakeSleep != nil {
-		p.FakeSleep, err = time.ParseDuration(*tmp.FakeSleep)
-		if err != nil {
-			return fmt.Errorf("parse fake_sleep %q: %w", *tmp.FakeSleep, err)
-		}
-		if p.FakeSleep <= 0 {
-			return fmt.Errorf("fake_sleep %q: must be greater than 0", *tmp.FakeSleep)
-		}
-	}
-
-	if tmp.SingleTimeout == nil {
-		p.SingleTimeout = unsetInt
-	} else {
-		p.SingleTimeout, err = time.ParseDuration(*tmp.SingleTimeout)
-		if err != nil {
-			return fmt.Errorf("parse single_timeout %q: %w", *tmp.SingleTimeout, err)
-		}
-		if p.SingleTimeout <= 0 {
-			return fmt.Errorf("single_timeout %q: must be greater than 0", *tmp.SingleTimeout)
-		}
-	}
-
-	if tmp.DNSCacheTTL == nil {
-		p.DNSCacheTTL = unsetInt
-	} else {
-		p.DNSCacheTTL, err = time.ParseDuration(*tmp.DNSCacheTTL)
-		if err != nil {
-			return fmt.Errorf("parse dns_cache_ttl %q: %w", *tmp.DNSCacheTTL, err)
-		}
-		if p.DNSCacheTTL < 0 {
-			return fmt.Errorf("dns_cache_ttl %q: must be greater than -1", *tmp.DNSCacheTTL)
-		}
-	}
-
-	if tmp.TTLCacheTTL == nil {
-		p.TTLCacheTTL = unsetInt
-	} else {
-		p.TTLCacheTTL, err = time.ParseDuration(*tmp.TTLCacheTTL)
-		if err != nil {
-			return fmt.Errorf("parse ttl_cache_ttl %q: %w", *tmp.TTLCacheTTL, err)
-		}
-		if p.TTLCacheTTL < 0 {
-			return fmt.Errorf("ttl_cache_ttl %q: must be greater than -1", *tmp.TTLCacheTTL)
-		}
-	}
-
-	return nil
+func (p *Policy) init() {
+	p.Port = unsetInt
+	p.DialDelay = unsetInt
+	p.HttpStatus = unsetInt
+	p.SendInterval = unsetInt
+	p.FakeTTL = unsetInt
+	p.ConnectTimeout = unsetInt
+	p.SingleTimeout = unsetInt
+	p.DNSCacheTTL = unsetInt
+	p.TTLCacheTTL = unsetInt
 }
 
-func (p *Policy) String() string {
-	fields := make([]string, 0, 13)
-	if p.ConnectTimeout != 0 {
-		fields = append(fields, "timeout="+p.ConnectTimeout.String())
+type PolicyOptions struct {
+	SniffOverrideMode     SniffOverrideMode `json:"sniff_override"`
+	ReplyFirst            jsonx.Bool        `json:"reply_first"`
+	ConnectTimeout        *jsonx.Duration   `json:"connect_timeout"`
+	DialDelay             *jsonx.Duration   `json:"dial_delay"`
+	Host                  dial.Dst          `json:"host"`
+	MapTo                 dial.Dst          `json:"map_to"`
+	Port                  *uint16           `json:"port"`
+	DNSMode               DNSMode           `json:"dns_mode"`
+	DNSCacheTTL           *jsonx.Duration   `json:"dns_cache_ttl"`
+	HttpStatus            *uint             `json:"http_status"`
+	TLS13Only             jsonx.Bool        `json:"tls13_only"`
+	DisableECHPassthrough jsonx.Bool        `json:"disable_ech_passthrough"`
+	Mode                  Mode              `json:"mode"`
+	NumRecords            *uint             `json:"num_records"`
+	NumSegments           *int              `json:"num_segs"`
+	WaitForAck            jsonx.Bool        `json:"wait_for_ack"`
+	OOB                   jsonx.Bool        `json:"oob"`
+	OOBEx                 jsonx.Bool        `json:"oob_ex"`
+	MinorVer              jsonx.Byte        `json:"minor_ver"`
+	SendInterval          *jsonx.Duration   `json:"send_interval"`
+	FakeTTL               *uint8            `json:"fake_ttl"`
+	FakeSleep             *jsonx.Duration   `json:"fake_sleep"`
+	MaxTTL                *uint8            `json:"max_ttl"`
+	Attempts              *uint             `json:"attempts"`
+	SingleTimeout         *jsonx.Duration   `json:"single_timeout"`
+	TTLCacheTTL           *jsonx.Duration   `json:"ttl_cache_ttl"`
+}
+
+func newPolicy(o *PolicyOptions) (*Policy, error) {
+	p := &Policy{
+		SniffOverrideMode:     o.SniffOverrideMode,
+		ReplyFirst:            o.ReplyFirst,
+		TLS13Only:             o.TLS13Only,
+		DisableECHPassthrough: o.DisableECHPassthrough,
+		Mode:                  o.Mode,
+		DNSMode:               o.DNSMode,
+		OOB:                   o.OOB,
+		OOBEx:                 o.OOBEx,
+		MinorVer:              o.MinorVer,
+		WaitForAck:            o.WaitForAck,
+		Host:                  o.Host,
+		MapTo:                 o.MapTo,
+	}
+	p.init()
+
+	if o.NumRecords != nil {
+		if *o.NumRecords == 0 {
+			return nil, E.New("num_records cannot be 0")
+		}
+		p.NumRecords = int(*o.NumRecords)
+	}
+
+	if o.NumSegments != nil {
+		if *o.NumSegments == 0 {
+			return nil, E.New("num_segs cannot be 0")
+		}
+		p.NumSegments = *o.NumSegments
+	}
+
+	if o.Attempts != nil {
+		if *o.Attempts == 0 {
+			return nil, E.New("attempts cannot be 0")
+		}
+		p.Attempts = int(*o.Attempts)
+	}
+
+	if o.MaxTTL != nil {
+		if *o.MaxTTL == 0 {
+			return nil, E.New("max_ttl cannot be 0")
+		}
+		p.MaxTTL = int(*o.MaxTTL)
+	}
+
+	if o.ConnectTimeout != nil {
+		if *o.ConnectTimeout <= 0 {
+			return nil, E.New("connect_timeout must be positive")
+		}
+		p.ConnectTimeout = o.ConnectTimeout.D()
+	}
+
+	if o.DialDelay != nil {
+		if *o.DialDelay <= 0 {
+			return nil, E.New("dial_delay must be positive")
+		}
+		p.DialDelay = o.ConnectTimeout.D()
+	}
+
+	if o.SendInterval != nil {
+		if *o.SendInterval < 0 {
+			return nil, E.New("send_interval cannot be negative")
+		}
+		p.SendInterval = o.SendInterval.D()
+	}
+
+	if o.FakeSleep != nil {
+		if *o.FakeSleep <= 0 {
+			return nil, E.New("fake_sleep must be positive")
+		}
+		p.FakeSleep = o.FakeSleep.D()
+	}
+
+	if o.SingleTimeout != nil {
+		if *o.SingleTimeout <= 0 {
+			return nil, fmt.Errorf("single_timeout must be positive")
+		}
+		p.SingleTimeout = o.SingleTimeout.D()
+	}
+
+	if o.DNSCacheTTL != nil {
+		if *o.DNSCacheTTL < 0 {
+			return nil, E.New("dns_cache_ttl cannot be negative")
+		}
+		p.DNSCacheTTL = o.DNSCacheTTL.D()
+	}
+
+	if o.TTLCacheTTL != nil {
+		if *o.TTLCacheTTL < 0 {
+			return nil, E.New("ttl_cache_ttl cannot be negative")
+		}
+		p.TTLCacheTTL = o.TTLCacheTTL.D()
+	}
+
+	if o.Port != nil {
+		p.Port = int(*o.Port)
+	}
+
+	if o.HttpStatus != nil {
+		p.HttpStatus = int(*o.HttpStatus)
+	}
+
+	if o.FakeTTL != nil {
+		p.FakeTTL = int(*o.FakeTTL)
+	}
+
+	return p, nil
+}
+
+func (p *Policy) Append(b []byte) []byte {
+	if p.ConnectTimeout > 0 {
+		b = append(b, " dial_timeout="...)
+		b = append(b, p.ConnectTimeout.String()...)
 	}
 	if p.Port != unsetInt && p.Port != 0 {
-		fields = append(fields, "port="+F.Int(p.Port))
+		b = append(b, " port="...)
+		b = F.AppendInt(b, p.Port)
 	}
 	if p.Host.IsZero() {
 		if p.DNSMode != DNSModeUnset {
-			fields = append(fields, p.DNSMode.String())
+			b = append(b, " dns_mode="...)
+			b = append(b, p.DNSMode.String()...)
 		}
 		if p.DNSCacheTTL > 0 {
-			fields = append(fields, "dns_cache_ttl="+p.DNSCacheTTL.String())
+			b = append(b, " dns_cache_ttl="...)
+			b = append(b, p.DNSCacheTTL.String()...)
 		}
 	}
 	if p.HttpStatus > 0 {
-		fields = append(fields, "http_status="+F.Int(p.HttpStatus))
+		b = append(b, " http_status="...)
+		b = F.AppendInt(b, p.HttpStatus)
 	}
 	if p.TLS13Only.IsTrue() {
-		fields = append(fields, "tls13_only")
+		b = append(b, " tls13_only"...)
 	}
 	if p.DisableECHPassthrough.IsTrue() {
-		fields = append(fields, "disable_ech_passthrough")
+		b = append(b, " disable_ech_passthrough"...)
 	}
-	fields = append(fields, p.Mode.String())
+	b = append(b, " mode="...)
+	b = append(b, p.Mode.String()...)
 	switch p.Mode {
 	case ModeTLSRF:
 		if !p.MinorVer.IsZero() {
-			fields = append(fields, "minor_ver="+F.Uint(p.MinorVer.Byte()))
+			b = append(b, " tls_minor_ver="...)
+			b = p.MinorVer.Append(b)
 		}
 		if p.NumRecords != unsetInt && p.NumRecords != 1 {
-			fields = append(fields, "records="+F.Int(p.NumRecords))
+			b = append(b, " tls_records="...)
+			b = F.AppendInt(b, p.NumRecords)
 		}
-		if p.NumSegments != unsetInt && p.NumSegments != 1 {
-			fields = append(fields, "segs="+F.Int(p.NumSegments))
-		}
-		if p.SendInterval > 0 {
-			fields = append(fields, "send_interval="+p.SendInterval.String())
+		if p.NumSegments != 1 {
+			b = append(b, " tcp_segments="...)
+			b = F.AppendInt(b, p.NumSegments)
+			if p.SendInterval > 0 {
+				b = append(b, " send_interval="...)
+				b = append(b, p.SendInterval.String()...)
+			}
 		}
 		if p.OOB.IsTrue() {
-			fields = append(fields, "oob")
+			b = append(b, " oob"...)
 		}
 		if p.OOBEx.IsTrue() {
-			fields = append(fields, "oob_ex")
+			b = append(b, " oob_ex"...)
 		}
 	case ModeTTLD:
-		if p.FakeTTL == 0 || p.FakeTTL == unsetInt {
-			fields = append(fields, "auto_fake_ttl")
+		b = append(b, " fake_ttl="...)
+		if p.FakeTTL != unsetInt && p.FakeTTL != 0 {
+			b = F.AppendInt(b, p.FakeTTL)
+		} else {
+			b = append(b, "auto"...)
 			if p.Attempts != 0 {
-				fields = append(fields, "attempts="+F.Int(p.Attempts))
+				b = append(b, " ttl_probing_attempts="...)
+				b = F.AppendInt(b, p.Attempts)
 			}
 			if p.MaxTTL != 0 {
-				fields = append(fields, "max_ttl="+F.Int(p.MaxTTL))
+				b = append(b, " ttl_probing_max_ttl="...)
+				b = F.AppendInt(b, p.MaxTTL)
 			}
 			if p.SingleTimeout != 0 {
-				fields = append(fields, "single_timeout="+p.SingleTimeout.String())
+				b = append(b, " ttl_probing_single_timeout="...)
+				b = append(b, p.SingleTimeout.String()...)
 			}
 			if p.TTLCacheTTL > 0 {
-				fields = append(fields, "ttl_cache_ttl="+p.TTLCacheTTL.String())
+				b = append(b, " ttl_cache_ttl="...)
+				b = append(b, p.TTLCacheTTL.String()...)
 			}
-		} else {
-			fields = append(fields, "fake_ttl="+F.Int(p.FakeTTL))
 		}
 		if p.FakeSleep != 0 {
-			fields = append(fields, "fake_sleep="+p.FakeSleep.String())
+			b = append(b, " fake_sleep="...)
+			b = append(b, p.FakeSleep.String()...)
 		}
 	}
-	return strings.Join(fields, " ")
+	return b
 }
 
 func mergePolicies(policies ...*Policy) *Policy {
-	merged := Policy{
-		Port:           unsetInt,
-		DialDelay:      unsetInt,
-		HttpStatus:     unsetInt,
-		SendInterval:   unsetInt,
-		FakeTTL:        unsetInt,
-		ConnectTimeout: unsetInt,
-		SingleTimeout:  unsetInt,
-		DNSCacheTTL:    unsetInt,
-		TTLCacheTTL:    unsetInt,
-	}
+	var merged Policy
+	merged.init()
+
 	for _, p := range policies {
 		if merged.SniffOverrideMode == SniffOverrideUnset && p.SniffOverrideMode != SniffOverrideUnset {
 			merged.SniffOverrideMode = p.SniffOverrideMode
@@ -552,9 +481,9 @@ const (
 
 func (c *Core) getIPPolicy(ip netip.Addr) (*Policy, bool) {
 	if ip.Unmap().Is6() {
-		return c.ipv6Matcher.Find(ip)
+		return c.ipv6Policies.Find(ip)
 	}
-	return c.ipv4Matcher.Find(ip)
+	return c.ipv4Policies.Find(ip)
 }
 
 type policyConn struct {
@@ -620,7 +549,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 	if dstPort == "" {
 		dstPort = "443"
 	}
-	policy := &c.defaultPolicy
+	policy := c.defaultPolicy
 
 	var (
 		finalDst                              *dial.Dst
@@ -639,7 +568,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 			return nil, err
 		}
 	} else {
-		domainPolicy, hasDomainPolicy = c.domainMatcher.Find(originHost)
+		domainPolicy, hasDomainPolicy = c.domainPolicies.Find(originHost)
 		if hasDomainPolicy {
 			policy = mergePolicies(domainPolicy, policy)
 		}
@@ -651,7 +580,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 		var single string
 		single, noRedirect = stripNoRedirectPrefix(host.Single())
 		if host.IsZero() || single == "" {
-			if hostFromHosts, ok := c.hostsMatcher.Find(originHost); ok {
+			if hostFromHosts, ok := c.hosts.Find(originHost); ok {
 				if hostFromHosts.IsMulti() {
 					finalDst = hostFromHosts
 					goto brk
@@ -727,9 +656,9 @@ brk:
 		}
 		var p *Policy
 		if hasDomainPolicy {
-			p = mergePolicies(domainPolicy, ipPolicy, &c.defaultPolicy)
+			p = mergePolicies(domainPolicy, ipPolicy, c.defaultPolicy)
 		} else {
-			p = mergePolicies(ipPolicy, &c.defaultPolicy)
+			p = mergePolicies(ipPolicy, c.defaultPolicy)
 		}
 		switch p.Mode {
 		case ModeBlock, ModeTLSAlert:
@@ -791,9 +720,9 @@ func (c *Core) genPolicy(
 			return nil, nil, true, false, false
 		}
 		if ipPolicy == nil {
-			p = &c.defaultPolicy
+			p = c.defaultPolicy
 		} else {
-			p = mergePolicies(ipPolicy, &c.defaultPolicy)
+			p = mergePolicies(ipPolicy, c.defaultPolicy)
 		}
 		if p.Mode == ModeBlock {
 			return nil, nil, false, true, false
@@ -801,14 +730,14 @@ func (c *Core) genPolicy(
 		return
 	}
 
-	domainPolicy, hasDomainPolicy := c.domainMatcher.Find(originHost)
+	domainPolicy, hasDomainPolicy := c.domainPolicies.Find(originHost)
 	if hasDomainPolicy {
 		if domainPolicy.Mode == ModeBlock {
 			return nil, nil, false, true, false
 		}
-		p = mergePolicies(domainPolicy, &c.defaultPolicy)
+		p = mergePolicies(domainPolicy, c.defaultPolicy)
 	} else {
-		p = &c.defaultPolicy
+		p = c.defaultPolicy
 	}
 
 	host = &p.Host
@@ -819,7 +748,7 @@ func (c *Core) genPolicy(
 	single, noRedirect := stripNoRedirectPrefix(host.Single())
 	fromHosts := false
 	if host.IsZero() || single == "" {
-		if hostFromHosts, ok := c.hostsMatcher.Find(originHost); ok {
+		if hostFromHosts, ok := c.hosts.Find(originHost); ok {
 			if hostFromHosts.IsMulti() {
 				host = hostFromHosts
 				return
@@ -914,9 +843,9 @@ func (c *Core) genPolicy(
 		return
 	}
 	if hasDomainPolicy {
-		p = mergePolicies(domainPolicy, ipPolicy, &c.defaultPolicy)
+		p = mergePolicies(domainPolicy, ipPolicy, c.defaultPolicy)
 	} else {
-		p = mergePolicies(ipPolicy, &c.defaultPolicy)
+		p = mergePolicies(ipPolicy, c.defaultPolicy)
 	}
 	if p.Mode == ModeBlock {
 		return nil, nil, false, true, false

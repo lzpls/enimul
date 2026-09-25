@@ -10,18 +10,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 )
 
-func (c *Core) SNIServe(cmdAddr, configAddr string) {
-	listenAddr := cmdAddr
-	if listenAddr == "" {
-		listenAddr = configAddr
-		if listenAddr == "" {
-			return
-		}
-	}
-	if listenAddr == "none" {
-		return
-	}
-
+func (c *Core) serveSNIProxy(listenAddr string) {
 	logger := c.newLogger("SP[00000]")
 	ln, err := listenTCP(listenAddr)
 	if err != nil {

@@ -2,20 +2,57 @@ package log
 
 import (
 	"encoding/json"
-	"errors"
+	"flag"
 	"fmt"
+
+	E "github.com/lzpls/enimul/internal/errors"
 )
+
+var _ flag.Value = (*Level)(nil)
 
 type Level int8
 
 const (
-	LevelTrace Level = iota - 2
+	LevelUnset Level = iota
+	LevelTrace
 	LevelDebug
-	LevelInfo // default
+	LevelInfo
 	LevelWarn
 	LevelError
 	Disabled // disables the logger
 )
+
+func (l *Level) String() string {
+	if l == nil {
+		return "<nil>"
+	}
+	switch *l {
+	case LevelUnset:
+		return "unknown"
+	case LevelTrace:
+		return "trace"
+	case LevelDebug:
+		return "debug"
+	case LevelInfo:
+		return "info"
+	case LevelWarn:
+		return "warn"
+	case LevelError:
+		return "error"
+	case Disabled:
+		return "disabled"
+	}
+	panic(fmt.Sprintf("unknown log level %d", *l))
+}
+
+func (l *Level) Set(value string) error {
+	lvl, err := ParseLevel(value)
+	if err != nil {
+		return err
+	}
+	*l = lvl
+	return nil
+}
 
 func ParseLevel(s string) (Level, error) {
 	switch s {
@@ -32,7 +69,7 @@ func ParseLevel(s string) (Level, error) {
 	case "NONE", "none":
 		return Disabled, nil
 	}
-	return 0, errors.New("unknown log level: " + s)
+	return 0, E.New("unknown log level: " + s)
 }
 
 func (lvl *Level) UnmarshalJSON(raw []byte) error {
@@ -60,8 +97,10 @@ func appendLevel(b []byte, lvl Level) []byte {
 		return append(b, "WARN"...)
 	case LevelError:
 		return append(b, "ERROR"...)
+	case LevelUnset:
+		panic("appendLevel: unexpected log level LevelUnset")
 	case Disabled:
-		panic("appendLevel: unexpected Disabled log level")
+		panic("appendLevel: unexpected log level Disabled")
 	}
-	panic(fmt.Sprintf("appendLevel: unknown log level: %d", lvl))
+	panic(fmt.Sprintf("appendLevel: unknown log level %d", lvl))
 }

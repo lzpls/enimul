@@ -246,14 +246,14 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 		}
 	} else if sniStr := string(record[sniStart : sniStart+sniLen]); ts.fromSNIProxy || ts.originHost != sniStr {
 		if ts.fromSNIProxy {
-			ts.logger.Info("SNI: ", sniStr)
+			ts.logger.Info("CONNECT ", sniStr)
 			ts.originHost = sniStr
 		} else {
 			ts.logger.Info("Mismatched SNI: ", sniStr)
 		}
 		switch ts.p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
-			if sniPolicy, exists := c.domainMatcher.Find(sniStr); exists {
+			if sniPolicy, exists := c.domainPolicies.Find(sniStr); exists {
 				switch sniPolicy.Mode {
 				case ModeBlock:
 					ts.logger.Info("Connection blocked: ", sniStr)
@@ -267,7 +267,7 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 					return
 				}
 				ts.p = mergePolicies(sniPolicy, ts.p)
-				ts.logger.Info("SNI policy: ", ts.p)
+				ts.logger.Info("SNI policy:", ts.p)
 			}
 		case SniffOverrideAlways, SniffOverridePolicyExists:
 			newDst, sniPolicy, failed, blocked, policyNotExists := c.genPolicy(
@@ -294,7 +294,11 @@ func (c *Core) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok
 				if !checkTLS13Only(ts.logger, isTLS13, sniPolicy, ts.cliConn, prtVer) {
 					return
 				}
-				ts.logger.Info("SNI policy: ", sniPolicy)
+				if ts.fromSNIProxy {
+					ts.logger.Info("Policy:", sniPolicy)
+				} else {
+					ts.logger.Info("SNI policy:", sniPolicy)
+				}
 				port := ts.originPort
 				if sniPolicy.Port != 0 && sniPolicy.Port != unsetInt {
 					port = F.Int(sniPolicy.Port)

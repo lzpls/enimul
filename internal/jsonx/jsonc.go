@@ -1,5 +1,6 @@
-// Modified from github.com/tidwall/jsonc
-package jsonc
+// Modified from https://github.com/tidwall/jsonc/blob/47bcc8d156812b0ba7ee42372b2259b645e9a092/jsonc.go
+
+package jsonx
 
 // ToJSON strips out comments and trailing commas and convert the input to a
 // valid JSON per the official spec: https://tools.ietf.org/html/rfc8259

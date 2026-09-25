@@ -8,6 +8,7 @@ import (
 	"time"
 
 	E "github.com/lzpls/enimul/internal/errors"
+	"github.com/lzpls/enimul/internal/jsonx"
 )
 
 func findLastDotOrMidPos(data []byte, sniStart, sniLen int) int {
@@ -19,7 +20,7 @@ func findLastDotOrMidPos(data []byte, sniStart, sniLen int) int {
 }
 
 func sendRecords(conn *net.TCPConn, clientHello []byte,
-	offset, length, records, segments int, minorVersion Byte,
+	offset, length, records, segments int, minorVersion jsonx.Byte,
 	oob, oobex, waitForAckEnabled bool,
 	interval time.Duration) error {
 	if !minorVersion.IsZero() {

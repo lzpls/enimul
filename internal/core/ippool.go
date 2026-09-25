@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net"
@@ -55,106 +54,107 @@ type IPPool struct {
 	counter atomic.Uint32
 }
 
-func (p *IPPool) UnmarshalJSON(b []byte) error {
-	var tmp struct {
-		WaitScanOnStartUp bool     `json:"wait_scan_on_startup"`
-		Multi             bool     `json:"multi"`
-		FallbackIP        dial.Dst `json:"fallback_ip"`
-		IPs               []string `json:"ips"`
-		ExcludedIPs       []string `json:"excluded_ips"`
-		Port              int      `json:"port"`
-		TopIPCount        int      `json:"top_ip_count"`
-		MaxConcurrency    int      `json:"max_concurrency"`
-		Timeout           string   `json:"timeout"`
-		UpdateInterval    string   `json:"update_interval"`
-		Attempts          int      `json:"attempts"`
-	}
-	if err := json.Unmarshal(b, &tmp); err != nil {
-		return err
-	}
+type IPPoolOptions struct {
+	WaitScanOnStartUp bool     `json:"wait_scan_on_startup"`
+	Multi             bool     `json:"multi"`
+	FallbackIP        dial.Dst `json:"fallback_ip"`
+	IPs               []string `json:"ips"`
+	ExcludedIPs       []string `json:"excluded_ips"`
+	Port              uint16   `json:"port"`
+	TopIPCount        int      `json:"top_ip_count"`
+	MaxConcurrency    int      `json:"max_concurrency"`
+	Timeout           string   `json:"timeout"`
+	UpdateInterval    string   `json:"update_interval"`
+	Attempts          int      `json:"attempts"`
+}
 
-	ips, err := parseIPList(tmp.IPs, tmp.ExcludedIPs)
-	if err != nil {
-		return E.WithStr("parse ips", err)
+func newIPPool(o *IPPoolOptions, logger log.Logger, dialer *dial.Dialer) (*IPPool, error) {
+	if o.Port == 0 {
+		return nil, E.New("port cannot be 0 or empty")
 	}
-	if len(ips) == 0 {
-		return E.New("no valid IPs after parsing")
-	}
-	if len(ips) > maxIPPoolSize {
-		return fmt.Errorf("IP pool exceeds maximum size (%d): %d", maxIPPoolSize, len(ips))
-	}
-	if len(ips) < tmp.TopIPCount {
-		return fmt.Errorf("IP count (%d) less than top_ip_count (%d)", len(ips), tmp.TopIPCount)
-	}
-
-	if tmp.Port <= 0 || tmp.Port > 65535 {
-		return fmt.Errorf("invalid port: %d", tmp.Port)
-	}
-
-	concurrency := tmp.MaxConcurrency
+	concurrency := o.MaxConcurrency
 	if concurrency == 0 {
 		concurrency = defaultMaxConcurrency
 	} else if concurrency < 1 {
-		return fmt.Errorf("invalid max_concurrency: %d", concurrency)
+		return nil, fmt.Errorf("invalid max_concurrency: %d", concurrency)
 	}
 
-	topCount := tmp.TopIPCount
-	if topCount == 0 {
-		topCount = defaultTopIPCount
-	} else if topCount <= 0 || topCount > 255 || topCount > len(ips) {
-		return fmt.Errorf("invalid top_ip_count: %d", topCount)
-	}
-
-	attempts := tmp.Attempts
+	attempts := o.Attempts
 	if attempts == 0 {
 		attempts = defaultAttempts
 	} else if attempts <= 0 || attempts > 255 {
-		return fmt.Errorf("invalid attempts: %d", attempts)
+		return nil, fmt.Errorf("invalid attempts: %d", attempts)
 	}
 
+	var err error
+
 	timeout := defaultTimeout
-	if tmp.Timeout != "" {
-		timeout, err = time.ParseDuration(tmp.Timeout)
+	if o.Timeout != "" {
+		timeout, err = time.ParseDuration(o.Timeout)
 		if err != nil || timeout <= 0 {
-			return fmt.Errorf("invalid timeout %q", tmp.Timeout)
+			return nil, fmt.Errorf("invalid timeout %q", o.Timeout)
 		}
 	}
 
 	updateInterval := defaultUpdateInterval
-	if tmp.UpdateInterval != "" {
-		updateInterval, err = time.ParseDuration(tmp.UpdateInterval)
+	if o.UpdateInterval != "" {
+		updateInterval, err = time.ParseDuration(o.UpdateInterval)
 		if err != nil || updateInterval <= 0 {
-			return fmt.Errorf("invalid update_interval %q", tmp.UpdateInterval)
+			return nil, fmt.Errorf("invalid update_interval %q", o.UpdateInterval)
 		}
 	}
 
-	if tmp.FallbackIP.IsZero() {
-		return E.New("fallback_ip cannot be empty")
+	if o.FallbackIP.IsZero() {
+		return nil, E.New("fallback_ip cannot be empty")
 	}
-	if !tmp.FallbackIP.IsMulti() {
-		single := tmp.FallbackIP.Single()
+	if !o.FallbackIP.IsMulti() {
+		single := o.FallbackIP.Single()
 		if single == "" {
-			return E.New("fallback_ip cannot be empty")
+			return nil, E.New("fallback_ip cannot be empty")
 		}
 		switch single[:1] {
 		case resolvePrefix, noRedirectPrefix, ipPoolTagPrefix:
-			return fmt.Errorf("invalid fallback_ip %q", tmp.FallbackIP.Single())
+			return nil, fmt.Errorf("invalid fallback_ip %q", o.FallbackIP.Single())
 		}
 	}
-	p.fallbackIP = tmp.FallbackIP
 
-	p.waitScanOnStartUp = tmp.WaitScanOnStartUp
-	p.multi = tmp.Multi
-	p.ips = ips
-	p.port = uint16(tmp.Port)
-	p.topIPCount = uint8(topCount)
-	p.attempts = uint8(attempts)
-	p.timeout = timeout
-	p.updateInterval = updateInterval
-	p.sem = make(chan struct{}, concurrency)
-	p.bestIndexes = make([]int, topCount)
-	p.bestWeights = make([]int, topCount)
-	return nil
+	ips, err := parseIPList(o.IPs, o.ExcludedIPs)
+	if err != nil {
+		return nil, E.WithStr("parse ips", err)
+	}
+	if len(ips) == 0 {
+		return nil, E.New("no valid ips after parsing")
+	}
+	if len(ips) > maxIPPoolSize {
+		return nil, fmt.Errorf("ip pool exceeds maximum size (%d): %d", maxIPPoolSize, len(ips))
+	}
+	if len(ips) < o.TopIPCount {
+		return nil, fmt.Errorf("ip count (%d) less than top_ip_count (%d)", len(ips), o.TopIPCount)
+	}
+
+	topCount := o.TopIPCount
+	if topCount == 0 {
+		topCount = defaultTopIPCount
+	} else if topCount <= 0 || topCount > 255 || topCount > len(ips) {
+		return nil, fmt.Errorf("invalid top_ip_count: %d", topCount)
+	}
+
+	return &IPPool{
+		logger:            logger,
+		dialer:            dialer,
+		fallbackIP:        o.FallbackIP,
+		waitScanOnStartUp: o.WaitScanOnStartUp,
+		multi:             o.Multi,
+		ips:               ips,
+		port:              o.Port,
+		topIPCount:        uint8(topCount),
+		attempts:          uint8(attempts),
+		timeout:           timeout,
+		updateInterval:    updateInterval,
+		sem:               make(chan struct{}, concurrency),
+		bestIndexes:       make([]int, topCount),
+		bestWeights:       make([]int, topCount),
+	}, nil
 }
 
 func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
@@ -189,7 +189,7 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 	for _, pattern := range sources {
 		for _, s := range expandPattern(pattern) {
 			if len(ips) >= maxIPPoolSize {
-				return nil, fmt.Errorf("IP pool exceeds maximum size (%d) during parsing", maxIPPoolSize)
+				return nil, fmt.Errorf("ip pool exceeds maximum size (%d) during parsing", maxIPPoolSize)
 			}
 
 			if addr, err := netip.ParseAddr(s); err == nil && addr.IsValid() {
@@ -206,7 +206,7 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 					unmappedAddr := addr.Unmap()
 					if !isExcluded(unmappedAddr) {
 						if len(ips) >= maxIPPoolSize {
-							return nil, fmt.Errorf("CIDR %q exceeds max pool size (%d)", s, maxIPPoolSize)
+							return nil, fmt.Errorf("cidr %q exceeds max pool size (%d)", s, maxIPPoolSize)
 						}
 						ips = append(ips, unmappedAddr)
 					}
@@ -229,7 +229,7 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 					addr = addr.Unmap()
 					if !isExcluded(addr) {
 						if len(ips) >= maxIPPoolSize {
-							return nil, fmt.Errorf("DNS resolution for %q exceeds max pool size", s)
+							return nil, fmt.Errorf("dns resolution for %q exceeds max pool size", s)
 						}
 						ips = append(ips, addr)
 					}
@@ -240,9 +240,7 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 	return ips, nil
 }
 
-func (p *IPPool) Init(logger log.Logger, dialer *dial.Dialer) {
-	p.logger = logger
-	p.dialer = dialer
+func (p *IPPool) Start() {
 	if p.waitScanOnStartUp {
 		p.scan()
 		go p.monitor()

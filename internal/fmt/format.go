@@ -7,6 +7,10 @@ import (
 	"unsafe"
 )
 
+type Appender interface {
+	Append([]byte) []byte
+}
+
 const hexDigits = "0123456789abcdef"
 
 func Byte(b byte) string {
@@ -30,6 +34,8 @@ func ConnIDToHex5(prefix string, id uint32) string {
 func Append(b []byte, args ...any) []byte {
 	for _, arg := range args {
 		switch a := arg.(type) {
+		case Appender:
+			b = a.Append(b)
 		case fmt.Stringer:
 			b = append(b, a.String()...)
 		case error:
@@ -68,13 +74,27 @@ func Concat(args ...any) string {
 	return unsafe.String(unsafe.SliceData(buf), len(buf))
 }
 
-func Int[T int | int8 | int16 | int32 | int64](v T) string {
-	return strconv.FormatInt(int64(v), 10)
+type intType interface {
+	int | int8 | int16 | int32 | int64
 }
 
-func Uint[T uint | uint8 | uint16 | uint32 | uint64](v T) string {
-	return strconv.FormatUint(uint64(v), 10)
+func Int[T intType](i T) string {
+	return strconv.FormatInt(int64(i), 10)
 }
+
+func AppendInt[T intType](dst []byte, i T) []byte {
+	return strconv.AppendInt(dst, int64(i), 10)
+}
+
+type uintType interface {
+	uint | uint8 | uint16 | uint32 | uint64
+}
+
+func Uint[T uintType](i T) string {
+	return strconv.FormatUint(uint64(i), 10)
+}
+
+func Err(a ...any) { fmt.Fprint(os.Stderr, a...) }
 
 func Errln(a ...any) { fmt.Fprintln(os.Stderr, a...) }
 

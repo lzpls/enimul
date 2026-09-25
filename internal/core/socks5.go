@@ -20,20 +20,7 @@ var (
 	socks5ReplyAtypNotSupported = [10]byte{0x5, 0x8, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
 )
 
-const maxConnID = 0xFFFFF
-
-func (c *Core) SOCKS5Serve(cmdAddr, configAddr string) {
-	listenAddr := cmdAddr
-	if listenAddr == "" {
-		listenAddr = configAddr
-		if listenAddr == "" {
-			return
-		}
-	}
-	if listenAddr == "none" {
-		return
-	}
-
+func (c *Core) serveSOCKS5(listenAddr string) {
 	logger := c.newLogger("S[00000]")
 	ln, err := listenTCP(listenAddr)
 	if err != nil {
@@ -195,7 +182,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	oldTarget := net.JoinHostPort(originHost, originPort)
 
 	logger.Info("CONNECT ", oldTarget)
-	logger.Info("Policy: ", policy)
+	logger.Info("Policy:", policy)
 	if policy.Port != 0 && policy.Port != unsetInt {
 		dstPort = uint16(policy.Port)
 	}

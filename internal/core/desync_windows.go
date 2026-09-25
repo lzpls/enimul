@@ -131,11 +131,11 @@ func sendWithNoise(
 		return E.WithStr("set default ttl", err)
 	}
 
+	// TODO: replace with WSAGetOverlappedResult polling?
 	event, err := windows.WaitForSingleObject(ov.HEvent, 5000)
 	if err != nil {
 		return E.WithStr("wait for TransmitFile", err)
 	}
-
 	switch event {
 	case windows.WAIT_OBJECT_0:
 	case uint32(windows.WAIT_TIMEOUT):
@@ -143,7 +143,7 @@ func sendWithNoise(
 	case windows.WAIT_ABANDONED:
 		return E.New("wait for TransmitFile: WAIT_ABANDONED")
 	case windows.WAIT_FAILED:
-		return E.WithStr("wait for TransmitFile: WAIT_FAILED", syscall.GetLastError())
+		return E.WithStr("wait for TransmitFile: WAIT_FAILED", windows.GetLastError())
 	default:
 		return E.NewAny("wait for TransmitFile: unexpected event: ", event)
 	}

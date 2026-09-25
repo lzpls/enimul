@@ -194,7 +194,7 @@ func (d *Dialer) startMonitor(interval time.Duration, lm laddrMonitor) {
 	}
 }
 
-func NewDialer(logger log.Logger, o BindingOption) (*Dialer, error) {
+func NewDialer(logger log.Logger, o *BindingOption) (*Dialer, error) {
 	var (
 		ipv4, ipv6   net.IP
 		zone         string

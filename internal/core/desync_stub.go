@@ -19,7 +19,7 @@ type (
 	ttlProbingFields = struct{}
 )
 
-func (c *Core) setTTLProbing(TTLProbingConfig) error {
+func (c *Core) setTTLProbing(*TTLProbingConfig) error {
 	F.Errln("Warning:", errTTLDNotSupported)
 	return nil
 }

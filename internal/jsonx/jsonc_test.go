@@ -1,4 +1,6 @@
-package jsonc
+// Copied from https://github.com/tidwall/jsonc/blob/47bcc8d156812b0ba7ee42372b2259b645e9a092/jsonc_test.go
+
+package jsonx
 
 import "testing"
 

@@ -37,7 +37,7 @@ func buildHashFunc[K comparable]() freelru.HashKeyCallback[K] {
 	return func(k K) uint32 { return uint32(maphash.Comparable(seed, k)) }
 }
 
-func (c *Core) setTTLProbing(conf TTLProbingConfig) error {
+func (c *Core) setTTLProbing(conf *TTLProbingConfig) error {
 	if err := c.loadTTLRules(conf.FakeTTLRules); err != nil {
 		return err
 	}

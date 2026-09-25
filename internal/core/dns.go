@@ -53,7 +53,7 @@ type DNSConfig struct {
 	DoHOutbound string `json:"doh_outbound"`
 }
 
-func (c *Core) setDNS(conf DNSConfig) error {
+func (c *Core) setDNS(conf *DNSConfig) error {
 	if conf.Addr == "" {
 		return E.New("addr cannot be empty")
 	}

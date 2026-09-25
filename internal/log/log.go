@@ -15,7 +15,6 @@ type Logger interface {
 	Info(args ...any)
 	Warn(args ...any)
 	Error(args ...any)
-	//io.Closer
 }
 
 func New(out io.Writer, prefix string, lvl Level) Logger {

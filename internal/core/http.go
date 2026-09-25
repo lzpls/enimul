@@ -34,18 +34,7 @@ func (c *Core) getHTTPConnID() uint32 {
 	}
 }
 
-func (c *Core) HTTPServe(cmdAddr, configAddr string) {
-	listenAddr := cmdAddr
-	if listenAddr == "" {
-		listenAddr = configAddr
-		if listenAddr == "" {
-			return
-		}
-	}
-	if listenAddr == "none" {
-		return
-	}
-
+func (c *Core) serveHTTPProxy(listenAddr string) {
 	logger := c.newLogger("H[00000]")
 	ln, err := listenTCP(listenAddr)
 	if err != nil {
@@ -101,7 +90,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		return
 	}
 
-	logger.Info("Policy: ", policy)
+	logger.Info("Policy:", policy)
 
 	if policy.Mode == ModeBlock {
 		http.Error(w, status403, http.StatusForbidden)
