@@ -114,7 +114,7 @@
     "zws5(|-1).web.telegram.org": "149.154.170.200",
     "platform.twitter.com": "146.75.120.157",
     "(cn|purr|et).nytimes.com": "",
-    "*nyt(imes|).com": "199.232.137.164",
+    "*nyt(imes|).com": "^199.232.137.164",
     "*netlify.app": "^$netlify",
     "archive.org": "$archive",
     "linux.do": "^"
