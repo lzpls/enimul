@@ -85,5 +85,5 @@ func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 	}
 
 	closeHere = false
-	forward(logger, conn, ts.dstConn, ts.originHost)
+	forwardTCP(logger, conn, ts.dstConn, ts.originHost)
 }
