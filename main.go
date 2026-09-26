@@ -39,6 +39,7 @@ func main() {
 	flag.BoolVar(&printVersion, "v", false, "Show current version and exit")
 
 	flag.Usage = func() {
+		F.Err("Usage: ", os.Args[0], " [OPTIONS]\n\nOptions:\n")
 		flag.PrintDefaults()
 		F.Errln()
 		showLicense()
@@ -110,13 +111,12 @@ func main() {
 }
 
 func showVersion() {
-	F.Err("lzpls/enimul " + core.Version + " built with " + runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH + "\n")
+	F.Err("lzpls/enimul " + core.Version + " built with " + runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH)
 }
 
 func showLicense() {
 	F.Err(`This project is licensed under the GNU Affero General Public License v3.0.
-Source code: https://github.com/lzpls/enimul
-`)
+Source code: https://github.com/lzpls/enimul`)
 }
 
 func configFromFile(path string, rejectUnknownMembers bool) (*core.Config, error) {
