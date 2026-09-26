@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"time"
 
 	F "github.com/lzpls/enimul/internal/fmt"
 )
@@ -26,6 +27,7 @@ func (c *Core) serveSNIProxy(listenAddr string) {
 	}
 
 	var connID uint32
+	var tempDelay time.Duration
 	for {
 		conn, err := ln.AcceptTCP()
 		if err == nil {
@@ -37,11 +39,18 @@ func (c *Core) serveSNIProxy(listenAddr string) {
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
-			logger.Warn("Accept failed: ", err)
-		} else {
-			logger.Error("Accept failed (fatal): ", err)
-			return
+			if tempDelay == 0 {
+				tempDelay = 5 * time.Millisecond
+			} else {
+				tempDelay *= 2
+			}
+			tempDelay = max(1*time.Second, tempDelay)
+			logger.Warn("Accept failed: ", err, "; retrying in ", tempDelay)
+			time.Sleep(tempDelay)
+			continue
 		}
+		logger.Error("Accept failed (fatal): ", err)
+		return
 	}
 }
 

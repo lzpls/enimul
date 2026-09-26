@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"slices"
+	"time"
 
 	"github.com/lzpls/enimul/internal/dial"
 	F "github.com/lzpls/enimul/internal/fmt"
@@ -31,6 +32,7 @@ func (c *Core) serveSOCKS5(listenAddr string) {
 	logger.Info("SOCKS5 proxy server started at ", ln.Addr())
 
 	var connID uint32
+	var tempDelay time.Duration
 	for {
 		conn, err := ln.AcceptTCP()
 		if err == nil {
@@ -42,11 +44,18 @@ func (c *Core) serveSOCKS5(listenAddr string) {
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
-			logger.Warn("Accept failed: ", err)
-		} else {
-			logger.Error("Accept failed (fatal): ", err)
-			return
+			if tempDelay == 0 {
+				tempDelay = 5 * time.Millisecond
+			} else {
+				tempDelay *= 2
+			}
+			tempDelay = max(1*time.Second, tempDelay)
+			logger.Warn("Accept failed: ", err, "; retrying in ", tempDelay)
+			time.Sleep(tempDelay)
+			continue
 		}
+		logger.Error("Accept failed (fatal): ", err)
+		return
 	}
 }
 

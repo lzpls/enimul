@@ -42,7 +42,9 @@ func (c *Core) serveHTTPProxy(listenAddr string) {
 		return
 	}
 	logger.Info("HTTP proxy server started at ", ln.Addr())
-	if err := http.Serve(ln, http.HandlerFunc(c.httpHandler)); err != nil {
+	server := http.Server{Handler: http.HandlerFunc(c.httpHandler)}
+	defer server.Close()
+	if err := server.Serve(ln); err != nil {
 		logger.Error("HTTP serve: ", err)
 	}
 }
