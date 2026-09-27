@@ -331,11 +331,11 @@ func (p *Policy) Append(b []byte) []byte {
 			b = append(b, " tls_minor_ver="...)
 			b = p.MinorVer.Append(b)
 		}
-		if p.NumRecords != unsetInt && p.NumRecords != 1 {
+		if p.NumRecords != 0 {
 			b = append(b, " tls_records="...)
 			b = F.AppendInt(b, p.NumRecords)
 		}
-		if p.NumSegments != 1 {
+		if p.NumSegments != 0 {
 			b = append(b, " tcp_segments="...)
 			b = F.AppendInt(b, p.NumSegments)
 			if p.SendInterval > 0 {

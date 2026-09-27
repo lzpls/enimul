@@ -26,6 +26,12 @@ func sendRecords(conn *net.TCPConn, clientHello []byte,
 	if !minorVersion.IsZero() {
 		clientHello[2] = minorVersion.Byte()
 	}
+	if records == 0 {
+		records = 1
+	}
+	if segments == 0 {
+		segments = 1
+	}
 
 	if records == 1 {
 		if oobex {
