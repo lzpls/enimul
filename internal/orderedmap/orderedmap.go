@@ -30,6 +30,8 @@ func (m *Map[T]) Len() int {
 	return len(m.keys)
 }
 
+var DisallowUnknownFields bool
+
 func (m *Map[T]) UnmarshalJSON(data []byte) error {
 	if m == nil {
 		return E.New("orderedmap: unmarshal nil Map")
@@ -39,6 +41,9 @@ func (m *Map[T]) UnmarshalJSON(data []byte) error {
 	values := make(map[string]T)
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
+	if DisallowUnknownFields {
+		decoder.DisallowUnknownFields()
+	}
 
 	token, err := decoder.Token()
 	if err != nil {

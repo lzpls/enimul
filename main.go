@@ -13,6 +13,7 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/jsonx"
 	"github.com/lzpls/enimul/internal/log"
+	"github.com/lzpls/enimul/internal/orderedmap"
 	_ "github.com/lzpls/enimul/internal/platform"
 )
 
@@ -65,6 +66,9 @@ func main() {
 	}
 
 	builder := core.NewBuilder()
+	if rejectUnknownMembers {
+		orderedmap.DisallowUnknownFields = true
+	}
 	for _, path := range configPaths {
 		cfg, err := configFromFile(path, rejectUnknownMembers)
 		if err != nil {
