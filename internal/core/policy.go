@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lzpls/enimul/internal/addrtrie"
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
@@ -479,18 +480,18 @@ const (
 	resolvePrefix    = "?"
 )
 
-func (c *Core) getIPPolicy(ip netip.Addr) (*Policy, bool) {
+func (e *policyEvaluator) getIPPolicy(ip netip.Addr) (*Policy, bool) {
 	if ip.Unmap().Is6() {
-		return c.ipv6Policies.Find(ip)
+		return e.ipv6Policies.Find(ip)
 	}
-	return c.ipv4Policies.Find(ip)
+	return e.ipv4Policies.Find(ip)
 }
 
 type policyConn struct {
 	*net.TCPConn
-	core    *Core
-	policy  *Policy
-	handled bool
+	ttlProbeManager *ttlProbeManager
+	policy          *Policy
+	handled         bool
 }
 
 func (c *policyConn) Write(b []byte) (n int, err error) {
@@ -515,7 +516,7 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 		return c.TCPConn.Write(b)
 	case ModeTTLD:
 		raddr := c.RemoteAddr().(*net.TCPAddr).AddrPort()
-		ttl, err := c.core.getFakeTTL(nil, c.policy, raddr)
+		ttl, err := c.ttlProbeManager.getFakeTTL(nil, c.policy, raddr)
 		if err != nil {
 			return 0, E.WithStr("get fake ttl", err)
 		}
@@ -539,7 +540,7 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 	return
 }
 
-func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, network, address string) (net.Conn, error), error) {
+func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, ipPoolManager *ipPoolManager, ttlProbeManager *ttlProbeManager) (dial.Func, error) {
 	if dohURL.Scheme != "https" || dohURL.Host == "" {
 		return nil, E.New("invalid DoH URL")
 	}
@@ -549,7 +550,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 	if dstPort == "" {
 		dstPort = "443"
 	}
-	policy := c.defaultPolicy
+	policy := e.defaultPolicy
 
 	var (
 		finalDst                              *dial.Dst
@@ -558,7 +559,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 	)
 
 	if ip, err := netip.ParseAddr(originHost); err == nil {
-		ipPolicy, _ = c.getIPPolicy(ip)
+		ipPolicy, _ = e.getIPPolicy(ip)
 		if ipPolicy != nil {
 			policy = mergePolicies(ipPolicy, policy)
 		}
@@ -568,7 +569,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 			return nil, err
 		}
 	} else {
-		domainPolicy, hasDomainPolicy = c.domainPolicies.Find(originHost)
+		domainPolicy, hasDomainPolicy = e.domainPolicies.Find(originHost)
 		if hasDomainPolicy {
 			policy = mergePolicies(domainPolicy, policy)
 		}
@@ -580,7 +581,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 		var single string
 		single, noRedirect = stripNoRedirectPrefix(host.Single())
 		if host.IsZero() || single == "" {
-			if hostFromHosts, ok := c.hosts.Find(originHost); ok {
+			if hostFromHosts, ok := e.hosts.Find(originHost); ok {
 				if hostFromHosts.IsMulti() {
 					finalDst = hostFromHosts
 					goto brk
@@ -602,7 +603,7 @@ func (c *Core) genDoHDialFunc(dohURL *url.URL) (func(ctx context.Context, networ
 				finalDst = dial.NewSingleDst(single)
 				goto brk
 			}
-			ipPolicy, _ = c.getIPPolicy(ip)
+			ipPolicy, _ = e.getIPPolicy(ip)
 			if ipPolicy == nil {
 				finalDst = dial.NewSingleDst(single)
 				goto brk
@@ -628,37 +629,37 @@ brk:
 
 	if !isIPPool {
 		return func(ctx context.Context, _, _ string) (net.Conn, error) {
-			conn, err := c.dialer.DialContextTimeout(ctx, finalDst, dstPort, policy.ConnectTimeout, policy.DialDelay)
+			conn, err := dialer.DialContextTimeout(ctx, finalDst, dstPort, policy.ConnectTimeout, policy.DialDelay)
 			if err != nil {
 				return nil, err
 			}
-			return &policyConn{TCPConn: conn, core: c, policy: policy}, nil
+			return &policyConn{TCPConn: conn, ttlProbeManager: ttlProbeManager, policy: policy}, nil
 		}, nil
 	}
 	tag := finalDst.Single()[1:]
-	pool, err := c.getIPPool(tag)
+	pool, err := ipPoolManager.get(tag)
 	if err != nil {
 		return nil, err
 	}
 	if noRedirect || pool.multi {
 		return func(ctx context.Context, network, _ string) (net.Conn, error) {
-			conn, err := c.dialer.DialContextTimeout(ctx, pool.Get(), dstPort, policy.ConnectTimeout, policy.DialDelay)
+			conn, err := dialer.DialContextTimeout(ctx, pool.Get(), dstPort, policy.ConnectTimeout, policy.DialDelay)
 			if err != nil {
 				return nil, err
 			}
-			return &policyConn{TCPConn: conn, core: c, policy: policy}, nil
+			return &policyConn{TCPConn: conn, ttlProbeManager: ttlProbeManager, policy: policy}, nil
 		}, nil
 	}
 	return func(ctx context.Context, network, _ string) (net.Conn, error) {
-		final, ipPolicy, err := c.ipRedirect(nil, pool.Get().Single())
+		final, ipPolicy, err := e.ipRedirect(nil, pool.Get().Single())
 		if err != nil {
 			return nil, E.WithStr("ip redirect", err)
 		}
 		var p *Policy
 		if hasDomainPolicy {
-			p = mergePolicies(domainPolicy, ipPolicy, c.defaultPolicy)
+			p = mergePolicies(domainPolicy, ipPolicy, e.defaultPolicy)
 		} else {
-			p = mergePolicies(ipPolicy, c.defaultPolicy)
+			p = mergePolicies(ipPolicy, e.defaultPolicy)
 		}
 		switch p.Mode {
 		case ModeBlock, ModeTLSAlert:
@@ -670,11 +671,11 @@ brk:
 		} else {
 			port = dstPort
 		}
-		conn, err := c.dialer.DialContextTimeout(ctx, final, port, p.ConnectTimeout, p.DialDelay)
+		conn, err := dialer.DialContextTimeout(ctx, final, port, p.ConnectTimeout, p.DialDelay)
 		if err != nil {
 			return nil, err
 		}
-		return &policyConn{TCPConn: conn, core: c, policy: p}, nil
+		return &policyConn{TCPConn: conn, ttlProbeManager: ttlProbeManager, policy: p}, nil
 	}, nil
 }
 
@@ -705,7 +706,17 @@ func stripNoRedirectPrefix(s string) (string, bool) {
 	return s, false
 }
 
-func (c *Core) genPolicy(
+type policyEvaluator struct {
+	hosts          *addrtrie.DomainMatcher[*dial.Dst]
+	defaultPolicy  *Policy
+	domainPolicies *addrtrie.DomainMatcher[*Policy]
+	ipv4Policies   *addrtrie.IPv4Trie[*Policy]
+	ipv6Policies   *addrtrie.IPv6Trie[*Policy]
+	ipPoolManager  *ipPoolManager
+	dnsResolver    *dnsResolver
+}
+
+func (e *policyEvaluator) genPolicy(
 	logger log.Logger,
 	originHost string,
 	isIP, returnWhenDomainNotFound bool,
@@ -714,15 +725,15 @@ func (c *Core) genPolicy(
 	if isIP {
 		var ipPolicy *Policy
 		var err error
-		host, ipPolicy, err = c.ipRedirect(logger, originHost)
+		host, ipPolicy, err = e.ipRedirect(logger, originHost)
 		if err != nil {
 			logger.Error("IP redirect: ", err)
 			return nil, nil, true, false, false
 		}
 		if ipPolicy == nil {
-			p = c.defaultPolicy
+			p = e.defaultPolicy
 		} else {
-			p = mergePolicies(ipPolicy, c.defaultPolicy)
+			p = mergePolicies(ipPolicy, e.defaultPolicy)
 		}
 		if p.Mode == ModeBlock {
 			return nil, nil, false, true, false
@@ -730,14 +741,14 @@ func (c *Core) genPolicy(
 		return
 	}
 
-	domainPolicy, hasDomainPolicy := c.domainPolicies.Find(originHost)
+	domainPolicy, hasDomainPolicy := e.domainPolicies.Find(originHost)
 	if hasDomainPolicy {
 		if domainPolicy.Mode == ModeBlock {
 			return nil, nil, false, true, false
 		}
-		p = mergePolicies(domainPolicy, c.defaultPolicy)
+		p = mergePolicies(domainPolicy, e.defaultPolicy)
 	} else {
-		p = c.defaultPolicy
+		p = e.defaultPolicy
 	}
 
 	host = &p.Host
@@ -748,7 +759,7 @@ func (c *Core) genPolicy(
 	single, noRedirect := stripNoRedirectPrefix(host.Single())
 	fromHosts := false
 	if host.IsZero() || single == "" {
-		if hostFromHosts, ok := c.hosts.Find(originHost); ok {
+		if hostFromHosts, ok := e.hosts.Find(originHost); ok {
 			if hostFromHosts.IsMulti() {
 				host = hostFromHosts
 				return
@@ -768,7 +779,7 @@ func (c *Core) genPolicy(
 
 	fromDNS := false
 	if single == "" {
-		resolved, cached, err := c.dnsResolve(originHost, p.DNSMode, p.DNSCacheTTL)
+		resolved, cached, err := e.dnsResolver.Resolve(originHost, p.DNSMode, p.DNSCacheTTL)
 		if err != nil {
 			logger.Error("Resolve ", originHost, " failed: ", err)
 			return nil, nil, true, false, false
@@ -788,7 +799,7 @@ func (c *Core) genPolicy(
 
 	if strings.HasPrefix(single, resolvePrefix) {
 		cname := single[1:]
-		resolved, cached, err := c.dnsResolve(cname, p.DNSMode, p.DNSCacheTTL)
+		resolved, cached, err := e.dnsResolver.Resolve(cname, p.DNSMode, p.DNSCacheTTL)
 		if err != nil {
 			logger.Error("Resolve ", originHost, " failed: ", err)
 			return nil, nil, true, false, false
@@ -812,7 +823,7 @@ func (c *Core) genPolicy(
 			logPrefix = "Host (from hosts): "
 		}
 		if strings.HasPrefix(single, ipPoolTagPrefix) {
-			cur, err := c.getDstFromIPPool(single[1:])
+			cur, err := e.ipPoolManager.getDstFrom(single[1:])
 			if err != nil {
 				logger.Error(err)
 				return nil, nil, true, false, false
@@ -833,7 +844,7 @@ func (c *Core) genPolicy(
 		return
 	}
 
-	mapped, ipPolicy, err := c.ipRedirect(logger, single)
+	mapped, ipPolicy, err := e.ipRedirect(logger, single)
 	if err != nil {
 		logger.Error("IP redirect: ", err)
 		return nil, nil, true, false, false
@@ -843,9 +854,9 @@ func (c *Core) genPolicy(
 		return
 	}
 	if hasDomainPolicy {
-		p = mergePolicies(domainPolicy, ipPolicy, c.defaultPolicy)
+		p = mergePolicies(domainPolicy, ipPolicy, e.defaultPolicy)
 	} else {
-		p = mergePolicies(ipPolicy, c.defaultPolicy)
+		p = mergePolicies(ipPolicy, e.defaultPolicy)
 	}
 	if p.Mode == ModeBlock {
 		return nil, nil, false, true, false
@@ -853,12 +864,12 @@ func (c *Core) genPolicy(
 	return
 }
 
-func (c *Core) ipRedirect(logger log.Logger, host string) (*dial.Dst, *Policy, error) {
+func (e *policyEvaluator) ipRedirect(logger log.Logger, host string) (*dial.Dst, *Policy, error) {
 	ip, err := netip.ParseAddr(host)
 	if err != nil {
 		return dial.NewSingleDst(host), nil, nil
 	}
-	policy, exists := c.getIPPolicy(ip)
+	policy, exists := e.getIPPolicy(ip)
 	if !exists {
 		return dial.NewSingleDst(host), nil, nil
 	}
@@ -873,7 +884,7 @@ func (c *Core) ipRedirect(logger log.Logger, host string) (*dial.Dst, *Policy, e
 		return dial.NewSingleDst(host), policy, nil
 	}
 	if strings.HasPrefix(mapTo, ipPoolTagPrefix) {
-		cur, err := c.getDstFromIPPool(mapTo[1:])
+		cur, err := e.ipPoolManager.getDstFrom(mapTo[1:])
 		if err != nil {
 			return nil, nil, err
 		}

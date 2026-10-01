@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
@@ -16,15 +17,15 @@ var errTTLDNotSupported = E.New("`ttl-d` is not supported on current system")
 
 type (
 	TTLProbingConfig = struct{}
-	ttlProbingFields = struct{}
+	ttlProbeManager  struct{}
 )
 
-func (c *Core) setTTLProbing(*TTLProbingConfig) error {
+func newTTLDesyncManager(*TTLProbingConfig, *dial.Dialer) (*ttlProbeManager, error) {
 	F.Errln("Warning:", errTTLDNotSupported)
-	return nil
+	return &ttlProbeManager{}, nil
 }
 
-func (c *Core) getFakeTTL(log.Logger, *Policy, netip.AddrPort) (int, error) {
+func (*ttlProbeManager) getFakeTTL(log.Logger, *Policy, netip.AddrPort) (int, error) {
 	return unsetInt, errTTLDNotSupported
 }
 

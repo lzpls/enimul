@@ -2,7 +2,7 @@ package core
 
 import (
 	"fmt"
-	"io"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,41 +20,35 @@ type inboundAddrs struct{ socks5, http, sniProxy string }
 
 func inboundIsEnabled(addr string) bool { return addr != "" && addr != "none" }
 
-type Core struct {
-	logLevel       log.Level
-	logOutput      io.Writer
-	inboundAddrs   *inboundAddrs
-	dialer         *dial.Dialer
-	dns            dnsFields
-	ttl            ttlProbingFields
-	ipPools        map[string]*IPPool
-	defaultPolicy  *Policy
-	hosts          *addrtrie.DomainMatcher[*dial.Dst]
-	domainPolicies *addrtrie.DomainMatcher[*Policy]
-	ipv4Policies   *addrtrie.IPv4Trie[*Policy]
-	ipv6Policies   *addrtrie.IPv6Trie[*Policy]
-	httpConnID     atomic.Uint32
+type Server struct {
+	logFactory      *log.Factory
+	inboundAddrs    *inboundAddrs
+	dialer          *dial.Dialer
+	dnsResolver     *dnsResolver
+	ttlProbeManager *ttlProbeManager
+	policyEvaluator *policyEvaluator
+	httpConnID      atomic.Uint32
 }
 
-func (c *Core) Serve() (<-chan struct{}, bool) {
+func (s *Server) Serve() (<-chan struct{}, bool) {
 	var wg sync.WaitGroup
 	n := 0
-	if addr := c.inboundAddrs.socks5; inboundIsEnabled(addr) {
+	if addr := s.inboundAddrs.socks5; inboundIsEnabled(addr) {
 		n++
-		wg.Go(func() { c.serveSOCKS5(addr) })
+		wg.Go(func() { s.serveSOCKS5(addr) })
 	}
-	if addr := c.inboundAddrs.http; inboundIsEnabled(addr) {
+	if addr := s.inboundAddrs.http; inboundIsEnabled(addr) {
 		n++
-		wg.Go(func() { c.serveHTTPProxy(addr) })
+		wg.Go(func() { s.serveHTTPProxy(addr) })
 	}
-	if addr := c.inboundAddrs.sniProxy; inboundIsEnabled(addr) {
+	if addr := s.inboundAddrs.sniProxy; inboundIsEnabled(addr) {
 		n++
-		wg.Go(func() { c.serveSNIProxy(addr) })
+		wg.Go(func() { s.serveSNIProxy(addr) })
 	}
 	if n == 0 {
 		return nil, false
 	}
-	c.inboundAddrs = nil
+	s.inboundAddrs = nil
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -98,7 +92,7 @@ type Builder struct {
 
 func NewBuilder() *Builder {
 	emptyStr := new(string)
-	var defaultPolicy Policy
+	defaultPolicy := new(Policy)
 	defaultPolicy.init()
 	return &Builder{
 		logLevel:         log.LevelInfo,
@@ -110,7 +104,7 @@ func NewBuilder() *Builder {
 		dnsConfig:        new(DNSConfig),
 		ttlProbingConfig: new(TTLProbingConfig),
 		hosts:            addrtrie.NewDomainMatcher[*dial.Dst](),
-		defaultPolicy:    &defaultPolicy,
+		defaultPolicy:    defaultPolicy,
 		domainPolicies:   addrtrie.NewDomainMatcher[*Policy](),
 		ipv4Policies:     addrtrie.NewIPv4Trie[*Policy](),
 		ipv6Policies:     addrtrie.NewIPv6Trie[*Policy](),
@@ -203,54 +197,68 @@ func (b *Builder) Merge(cfg *Config) error {
 	return nil
 }
 
-func (b *Builder) Build() (*Core, error) {
-	c := &Core{
-		logLevel: b.logLevel,
-		inboundAddrs: &inboundAddrs{
-			socks5:   *b.socks5Addr,
-			http:     *b.httpAddr,
-			sniProxy: *b.sniProxyAddr,
-		},
+func (b *Builder) Build() (*Server, error) {
+	out, err := log.NewOutput(*b.logOutput)
+	if err != nil {
+		return nil, E.WithStr("create log output", err)
+	}
+	logFactory := log.NewFactory(out, b.logLevel)
+
+	dialer, err := dial.NewDialer(logFactory.NewLogger("[dial]"), b.outboundBinding)
+	if err != nil {
+		return nil, E.WithStr("create dialer", err)
+	}
+
+	var ipPools map[string]*IPPool
+	if l := len(b.ipPools); l > 0 {
+		ipPools = make(map[string]*IPPool, l)
+		for tag, options := range b.ipPools {
+			pool, err := newIPPool(&options, logFactory.NewLogger("P["+tag+"]"), dialer)
+			if err != nil {
+				return nil, fmt.Errorf("create ip pool %q: %w", tag, err)
+			}
+			ipPools[tag] = pool
+		}
+		for _, pool := range ipPools {
+			pool.Start()
+		}
+	}
+	ipPoolManager := newIPPoolManager(ipPools)
+
+	ttlProbeManager, err := newTTLDesyncManager(b.ttlProbingConfig, dialer)
+	if err != nil {
+		return nil, E.WithStr("create ttl probe manager", err)
+	}
+
+	policyEvaluator := &policyEvaluator{
 		hosts:          b.hosts,
 		defaultPolicy:  b.defaultPolicy,
 		domainPolicies: b.domainPolicies,
 		ipv4Policies:   b.ipv4Policies,
 		ipv6Policies:   b.ipv6Policies,
-	}
-	var err error
-
-	if err := c.setLogOutput(*b.logOutput); err != nil {
-		return nil, E.WithStr("set log output", err)
+		ipPoolManager:  ipPoolManager,
 	}
 
-	c.dialer, err = dial.NewDialer(c.newLogger("[dial]"), b.outboundBinding)
+	dnsResolver, err := newDNSResolver(b.dnsConfig, func(u *url.URL) (dial.Func, error) {
+		return policyEvaluator.genDoHDialFunc(u, dialer, ipPoolManager, ttlProbeManager)
+	})
 	if err != nil {
-		return nil, E.WithStr("create dialer", err)
+		return nil, E.WithStr("create dns resolver", err)
 	}
+	policyEvaluator.dnsResolver = dnsResolver
 
-	if l := len(b.ipPools); l > 0 {
-		c.ipPools = make(map[string]*IPPool, l)
-		for tag, options := range b.ipPools {
-			pool, err := newIPPool(&options, c.newLogger("P["+tag+"]"), c.dialer)
-			if err != nil {
-				return nil, fmt.Errorf("create ip pool %q: %w", tag, err)
-			}
-			c.ipPools[tag] = pool
-		}
-		for _, pool := range c.ipPools {
-			pool.Start()
-		}
-	}
-
-	if err = c.setDNS(b.dnsConfig); err != nil {
-		return nil, E.WithStr("init dns", err)
-	}
-
-	if err = c.setTTLProbing(b.ttlProbingConfig); err != nil {
-		return nil, E.WithStr("init ttl probing", err)
-	}
-
-	return c, nil
+	return &Server{
+		logFactory: logFactory,
+		inboundAddrs: &inboundAddrs{
+			socks5:   *b.socks5Addr,
+			http:     *b.httpAddr,
+			sniProxy: *b.sniProxyAddr,
+		},
+		dialer:          dialer,
+		ttlProbeManager: ttlProbeManager,
+		policyEvaluator: policyEvaluator,
+		dnsResolver:     dnsResolver,
+	}, nil
 }
 
 func expandPattern(s string) []string {

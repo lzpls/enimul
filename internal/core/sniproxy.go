@@ -11,8 +11,8 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 )
 
-func (c *Core) serveSNIProxy(listenAddr string) {
-	logger := c.newLogger("SP[00000]")
+func (s *Server) serveSNIProxy(listenAddr string) {
+	logger := s.logFactory.NewLogger("SP[00000]")
 	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start SNI proxy server: ", err)
@@ -35,7 +35,7 @@ func (c *Core) serveSNIProxy(listenAddr string) {
 			if connID > maxConnID {
 				connID = 1
 			}
-			go c.handleTunnelSNI(conn, connID, port)
+			go s.handleTunnelSNI(conn, connID, port)
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
@@ -54,7 +54,7 @@ func (c *Core) serveSNIProxy(listenAddr string) {
 	}
 }
 
-func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
+func (s *Server) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 	closeHere := true
 	defer func() {
 		if closeHere {
@@ -62,7 +62,7 @@ func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 		}
 	}()
 
-	logger := c.newLogger(F.ConnIDToHex5("SP", connID))
+	logger := s.logFactory.NewLogger(F.ConnIDToHex5("SP", connID))
 	logger.Info("Connection from ", conn.RemoteAddr())
 
 	br := bufio.NewReader(conn)
@@ -89,7 +89,7 @@ func (c *Core) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
 		fromSNIProxy: true,
 	}
 	payloadLen := 5 + int(binary.BigEndian.Uint16(header[3:5]))
-	if !c.handleTLS(ts, payloadLen, br) || !drainBuffered(logger, br, ts.dstConn) {
+	if !s.handleTLS(ts, payloadLen, br) || !drainBuffered(logger, br, ts.dstConn) {
 		return
 	}
 

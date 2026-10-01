@@ -21,8 +21,8 @@ var (
 	socks5ReplyAtypNotSupported = [10]byte{0x5, 0x8, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
 )
 
-func (c *Core) serveSOCKS5(listenAddr string) {
-	logger := c.newLogger("S[00000]")
+func (s *Server) serveSOCKS5(listenAddr string) {
+	logger := s.logFactory.NewLogger("S[00000]")
 	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start SOCKS5 server: ", err)
@@ -40,7 +40,7 @@ func (c *Core) serveSOCKS5(listenAddr string) {
 			if connID > maxConnID {
 				connID = 1
 			}
-			go c.socks5Handler(conn, connID)
+			go s.socks5Handler(conn, connID)
 			continue
 		}
 		if ne, ok := err.(net.Error); ok && ne.Temporary() {
@@ -72,7 +72,7 @@ func sendReply(logger log.Logger, conn *net.TCPConn, reply [10]byte) bool {
 	return true
 }
 
-func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
+func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	closeHere := true
 	defer func() {
 		if closeHere {
@@ -80,7 +80,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		}
 	}()
 
-	logger := c.newLogger(F.ConnIDToHex5("S", id))
+	logger := s.logFactory.NewLogger(F.ConnIDToHex5("S", id))
 	logger.Info("Connection from ", cliConn.RemoteAddr())
 
 	var headerBuf [2]byte
@@ -170,7 +170,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		return
 	}
 
-	dstHost, policy, failed, blocked, _ := c.genPolicy(logger, originHost, isIP, false)
+	dstHost, policy, failed, blocked, _ := s.policyEvaluator.genPolicy(logger, originHost, isIP, false)
 	if failed {
 		sendReply(logger, cliConn, socks5ReplyServerFailure)
 		return
@@ -199,7 +199,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	var dstConn *net.TCPConn
 	port := F.Uint(dstPort)
 	if !policy.ReplyFirst.IsTrue() {
-		dstConn, err = c.dialer.DialTimeout(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
+		dstConn, err = s.dialer.DialTimeout(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)
@@ -216,7 +216,7 @@ func (c *Core) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	}
 
 	closeHere = false
-	c.handleTunnel(&tunnelSession{
+	s.handleTunnel(&tunnelSession{
 		logger:     logger,
 		p:          policy,
 		cliConn:    cliConn,

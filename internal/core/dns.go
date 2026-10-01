@@ -27,7 +27,7 @@ type DNSClient interface {
 
 type dnsExchangeFunc = func(req *dns.Msg) (resp *dns.Msg, err error)
 
-type dnsFields struct {
+type dnsResolver struct {
 	client         DNSClient
 	exchange       dnsExchangeFunc
 	cache          *freelru.ShardedLRU[string, *dial.Dst]
@@ -53,62 +53,64 @@ type DNSConfig struct {
 	DoHOutbound string `json:"doh_outbound"`
 }
 
-func (c *Core) setDNS(conf *DNSConfig) error {
-	if conf.Addr == "" {
-		return E.New("addr cannot be empty")
+func newDNSResolver(cfg *DNSConfig, buildPolicyDoHTransport func(*url.URL) (dial.Func, error)) (*dnsResolver, error) {
+	if cfg.Addr == "" {
+		return nil, E.New("addr cannot be empty")
 	}
 
-	addr := conf.Addr
-	switch conf.Type {
+	resolver := new(dnsResolver)
+
+	addr := cfg.Addr
+	switch cfg.Type {
 	case "", "udp": // default
 		if _, err := netip.ParseAddrPort(addr); err != nil {
-			return E.WithStr("invalid addr", err)
+			return nil, E.WithStr("invalid addr", err)
 		}
 
 		var cli dns.Client
 		var err error
-		if conf.UDPSize > 0 {
-			cli.UDPSize = conf.UDPSize
+		if cfg.UDPSize > 0 {
+			cli.UDPSize = cfg.UDPSize
 		}
-		if conf.ClientTimeout != "" {
-			cli.Timeout, err = time.ParseDuration(conf.ClientTimeout)
+		if cfg.ClientTimeout != "" {
+			cli.Timeout, err = time.ParseDuration(cfg.ClientTimeout)
 			if err != nil {
-				return E.WithStr("invalid client_timeout", err)
+				return nil, E.WithStr("invalid client_timeout", err)
 			}
 			if cli.Timeout <= 0 {
-				return E.New("client_timeout must be greater than 0")
+				return nil, E.New("client_timeout must be greater than 0")
 			}
 		}
 
-		if conf.Qtype2 != "" {
+		if cfg.Qtype2 != "" {
 			var ok bool
-			c.dns.qtype2, ok = dns.StringToType[conf.Qtype2]
+			resolver.qtype2, ok = dns.StringToType[cfg.Qtype2]
 			if !ok {
-				return fmt.Errorf("invalid qtype2 %q", conf.Qtype2)
+				return nil, fmt.Errorf("invalid qtype2 %q", cfg.Qtype2)
 			}
 		}
 
 		var dnsClient DNSClient
-		if conf.WaitTimeout == "" && conf.MinRTT == "" {
+		if cfg.WaitTimeout == "" && cfg.MinRTT == "" {
 			dnsClient = &cli
 		} else {
 			var waitTimeout, minRTT time.Duration
-			if conf.WaitTimeout != "" {
-				waitTimeout, err = time.ParseDuration(conf.WaitTimeout)
+			if cfg.WaitTimeout != "" {
+				waitTimeout, err = time.ParseDuration(cfg.WaitTimeout)
 				if err != nil {
-					return E.WithStr("invalid wait_timeout", err)
+					return nil, E.WithStr("invalid wait_timeout", err)
 				}
 				if waitTimeout <= 0 {
-					return E.New("wait_timeout must be greater than 0")
+					return nil, E.New("wait_timeout must be greater than 0")
 				}
 			}
-			if conf.MinRTT != "" {
-				minRTT, err = time.ParseDuration(conf.MinRTT)
+			if cfg.MinRTT != "" {
+				minRTT, err = time.ParseDuration(cfg.MinRTT)
 				if err != nil {
-					return E.WithStr("invalid min_rtt", err)
+					return nil, E.WithStr("invalid min_rtt", err)
 				}
 				if minRTT <= 0 {
-					return E.New("min_rtt must be greater than 0")
+					return nil, E.New("min_rtt must be greater than 0")
 				}
 			}
 			dnsClient = &antiHijackDNSClient{
@@ -117,72 +119,72 @@ func (c *Core) setDNS(conf *DNSConfig) error {
 				minRTT:      minRTT,
 			}
 		}
-		c.dns.exchange = buildDNSExchangeFunc(dnsClient, addr)
+		resolver.exchange = buildDNSExchangeFunc(dnsClient, addr)
 	case "tcp":
 		if _, err := netip.ParseAddrPort(addr); err != nil {
-			return E.WithStr("invalid addr", err)
+			return nil, E.WithStr("invalid addr", err)
 		}
-		c.dns.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp"}, addr)
+		resolver.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp"}, addr)
 	case "tls":
 		if _, err := netip.ParseAddrPort(addr); err != nil {
-			return E.WithStr("invalid addr", err)
+			return nil, E.WithStr("invalid addr", err)
 		}
-		c.dns.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp-tls"}, addr)
+		resolver.exchange = buildDNSExchangeFunc(&dns.Client{Net: "tcp-tls"}, addr)
 	case "https":
 		dohURL, err := url.Parse(addr)
 		if err != nil {
-			return fmt.Errorf("invalid DoH URL %q: %w", addr, err)
+			return nil, fmt.Errorf("invalid DoH URL %q: %w", addr, err)
 		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
-		switch conf.DoHOutbound {
+		switch cfg.DoHOutbound {
 		case "", "policy": // default
 			transport.Proxy = nil
-			transport.DialContext, err = c.genDoHDialFunc(dohURL)
+			transport.DialContext, err = buildPolicyDoHTransport(dohURL)
 			if err != nil {
-				return E.WithStr("generate DoH dial function", err)
+				return nil, E.WithStr("build policy DoH transport", err)
 			}
 		case "direct":
 			transport.Proxy = nil
 		case "env":
 		default:
-			proxyURL, err := url.Parse(conf.DoHOutbound)
+			proxyURL, err := url.Parse(cfg.DoHOutbound)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			switch proxyURL.Scheme {
 			case "http", "https", "socks5", "socks5h":
 			case "":
-				return E.New("proxy URL scheme cannot be empty")
+				return nil, E.New("proxy URL scheme cannot be empty")
 			default:
-				return fmt.Errorf("invalid proxy URL scheme %q", proxyURL.Scheme)
+				return nil, fmt.Errorf("invalid proxy URL scheme %q", proxyURL.Scheme)
 			}
 			transport.Proxy = http.ProxyURL(proxyURL)
 		}
-		c.dns.exchange = buildDoHExchangeFunc(&http.Client{Transport: transport}, addr)
+		resolver.exchange = buildDoHExchangeFunc(&http.Client{Transport: transport}, addr)
 	default:
-		return fmt.Errorf("unknown type %q", conf.Type)
+		return nil, fmt.Errorf("unknown type %q", cfg.Type)
 	}
 
-	if conf.SingleFlight {
-		c.dns.resolveGroup = new(singleflight.Group[string, *dial.Dst])
-	}
-
-	if !conf.DisableCache {
-		if conf.CacheCapacity == 0 {
-			conf.CacheCapacity = 4096
+	if !cfg.DisableCache {
+		if cfg.CacheCapacity == 0 {
+			cfg.CacheCapacity = 4096
 		}
 		var err error
 		hashFunc := func(s string) uint32 { return uint32(xxhash.Sum64String(s)) }
-		c.dns.cache, err = freelru.NewSharded[string, *dial.Dst](conf.CacheCapacity, hashFunc)
+		resolver.cache, err = freelru.NewSharded[string, *dial.Dst](cfg.CacheCapacity, hashFunc)
 		if err != nil {
-			return E.WithStr("init dns cache", err)
+			return nil, E.WithStr("init cache", err)
 		}
 	}
 
-	if conf.EDNS0Subnet != "" {
-		prefix, err := netip.ParsePrefix(conf.EDNS0Subnet)
+	if cfg.SingleFlight {
+		resolver.resolveGroup = new(singleflight.Group[string, *dial.Dst])
+	}
+
+	if cfg.EDNS0Subnet != "" {
+		prefix, err := netip.ParsePrefix(cfg.EDNS0Subnet)
 		if err != nil {
-			return fmt.Errorf("invalid edns0_subnet %q: %w", conf.EDNS0Subnet, err)
+			return nil, fmt.Errorf("invalid edns0_subnet %q: %w", cfg.EDNS0Subnet, err)
 		}
 		family := uint16(1)
 		if prefix.Addr().Unmap().Is6() {
@@ -194,18 +196,18 @@ func (c *Core) setDNS(conf *DNSConfig) error {
 			SourceNetmask: uint8(prefix.Bits()),
 			Address:       prefix.Addr().AsSlice(),
 		}
-		c.dns.edns0SubnetOpt = &dns.OPT{
+		resolver.edns0SubnetOpt = &dns.OPT{
 			Hdr:    dns.RR_Header{Name: ".", Rrtype: dns.TypeOPT},
 			Option: []dns.EDNS0{edns0},
 		}
 	}
 
-	return nil
+	return resolver, nil
 }
 
-func buildDNSExchangeFunc(c DNSClient, addr string) dnsExchangeFunc {
+func buildDNSExchangeFunc(cli DNSClient, addr string) dnsExchangeFunc {
 	return func(req *dns.Msg) (resp *dns.Msg, err error) {
-		resp, _, err = c.Exchange(req, addr)
+		resp, _, err = cli.Exchange(req, addr)
 		return resp, err
 	}
 }
@@ -357,10 +359,10 @@ func pickAAAARecords(answer []dns.RR) []net.IP {
 	return ips
 }
 
-func (c *Core) dnsMsgSetQuestion(msg *dns.Msg, fqdn string, qtype uint16) {
+func (r *dnsResolver) dnsMsgSetQuestion(msg *dns.Msg, fqdn string, qtype uint16) {
 	msg.Id = dns.Id()
 	msg.RecursionDesired = true
-	if c.dns.qtype2 == 0 {
+	if r.qtype2 == 0 {
 		msg.Question = []dns.Question{
 			{
 				Name:   fqdn,
@@ -377,14 +379,14 @@ func (c *Core) dnsMsgSetQuestion(msg *dns.Msg, fqdn string, qtype uint16) {
 			},
 			{
 				Name:   fqdn,
-				Qtype:  c.dns.qtype2,
+				Qtype:  r.qtype2,
 				Qclass: dns.ClassINET,
 			},
 		}
 	}
 }
 
-func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ip net.IP, _ error) {
+func (r *dnsResolver) resolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ip net.IP, _ error) {
 	switch mode {
 	case DNSModeIPv4Only:
 		if ip = pickFirstARecord(ans); ip == nil {
@@ -396,8 +398,8 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 		}
 	case DNSModePreferIPv4:
 		if ip = pickFirstARecord(ans); ip == nil {
-			c.dnsMsgSetQuestion(msg, domain, dns.TypeAAAA)
-			resp, err2 := c.dns.exchange(msg)
+			r.dnsMsgSetQuestion(msg, domain, dns.TypeAAAA)
+			resp, err2 := r.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -410,8 +412,8 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 		}
 	case DNSModePreferIPv6:
 		if ip = pickFirstAAAARecord(ans); ip == nil {
-			c.dnsMsgSetQuestion(msg, domain, dns.TypeA)
-			resp, err2 := c.dns.exchange(msg)
+			r.dnsMsgSetQuestion(msg, domain, dns.TypeA)
+			resp, err2 := r.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -426,7 +428,7 @@ func (c *Core) dnsResolveSingle(domain string, mode DNSMode, ans []dns.RR, msg *
 	return
 }
 
-func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ips []net.IP, _ error) {
+func (r *dnsResolver) resolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *dns.Msg, err error) (ips []net.IP, _ error) {
 	switch mode {
 	case DNSModeMultiIPv4Only:
 		if ips = pickARecords(ans); ips == nil {
@@ -438,8 +440,8 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 		}
 	case DNSModeMultiPreferIPv4:
 		if ips = pickARecords(ans); ips == nil {
-			c.dnsMsgSetQuestion(msg, domain, dns.TypeAAAA)
-			resp, err2 := c.dns.exchange(msg)
+			r.dnsMsgSetQuestion(msg, domain, dns.TypeAAAA)
+			resp, err2 := r.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -452,8 +454,8 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 		}
 	case DNSModeMultiPreferIPv6:
 		if ips = pickAAAARecords(ans); ips == nil {
-			c.dnsMsgSetQuestion(msg, domain, dns.TypeA)
-			resp, err2 := c.dns.exchange(msg)
+			r.dnsMsgSetQuestion(msg, domain, dns.TypeA)
+			resp, err2 := r.exchange(msg)
 			if err2 != nil {
 				return nil, E.WithStr("dns exchange", E.Join(err, err2))
 			}
@@ -468,20 +470,20 @@ func (c *Core) dnsResolveMulti(domain string, mode DNSMode, ans []dns.RR, msg *d
 	return
 }
 
-func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration) (*dial.Dst, error) {
+func (r *dnsResolver) doResolve(domain string, mode DNSMode, cacheTTL time.Duration) (*dial.Dst, error) {
 	msg := new(dns.Msg)
 	fqdn := dns.Fqdn(domain)
 	switch mode {
 	case DNSModePreferIPv4, DNSModeIPv4Only, DNSModeMultiPreferIPv4, DNSModeMultiIPv4Only:
-		c.dnsMsgSetQuestion(msg, fqdn, dns.TypeA)
+		r.dnsMsgSetQuestion(msg, fqdn, dns.TypeA)
 	case DNSModePreferIPv6, DNSModeIPv6Only, DNSModeMultiPreferIPv6, DNSModeMultiIPv6Only:
-		c.dnsMsgSetQuestion(msg, fqdn, dns.TypeAAAA)
+		r.dnsMsgSetQuestion(msg, fqdn, dns.TypeAAAA)
 	}
-	if c.dns.edns0SubnetOpt != nil {
-		msg.Extra = []dns.RR{c.dns.edns0SubnetOpt}
+	if r.edns0SubnetOpt != nil {
+		msg.Extra = []dns.RR{r.edns0SubnetOpt}
 	}
 
-	resp, err := c.dns.exchange(msg)
+	resp, err := r.exchange(msg)
 	if err != nil {
 		return nil, E.WithStr("dns exchange", err)
 	}
@@ -492,37 +494,37 @@ func (c *Core) doDNSResolve(domain string, mode DNSMode, cacheTTL time.Duration)
 	var dst *dial.Dst
 	switch mode {
 	case DNSModeIPv4Only, DNSModeIPv6Only, DNSModePreferIPv4, DNSModePreferIPv6:
-		ip, err := c.dnsResolveSingle(fqdn, mode, resp.Answer, msg, err)
+		ip, err := r.resolveSingle(fqdn, mode, resp.Answer, msg, err)
 		if err != nil {
 			return nil, err
 		}
 		dst = dial.NewSingleDst(ip.String())
 	case DNSModeMultiIPv4Only, DNSModeMultiIPv6Only, DNSModeMultiPreferIPv4, DNSModeMultiPreferIPv6:
-		ips, err := c.dnsResolveMulti(fqdn, mode, resp.Answer, msg, err)
+		ips, err := r.resolveMulti(fqdn, mode, resp.Answer, msg, err)
 		if err != nil {
 			return nil, err
 		}
 		dst = dial.NewDstFromIPs(ips)
 	}
 
-	if cacheTTL != 0 && cacheTTL != unsetInt && c.dns.cache != nil {
-		c.dns.cache.AddWithLifetime(domain, dst, cacheTTL)
+	if cacheTTL != 0 && cacheTTL != unsetInt && r.cache != nil {
+		r.cache.AddWithLifetime(domain, dst, cacheTTL)
 	}
 	return dst, nil
 }
 
-func (c *Core) dnsResolve(domain string, mode DNSMode, cacheTTL time.Duration) (dst *dial.Dst, cached bool, err error) {
-	if c.dns.cache != nil {
-		if dst, ok := c.dns.cache.Get(domain); ok {
+func (r *dnsResolver) Resolve(domain string, mode DNSMode, cacheTTL time.Duration) (dst *dial.Dst, cached bool, err error) {
+	if r.cache != nil {
+		if dst, ok := r.cache.Get(domain); ok {
 			return dst, true, nil
 		}
 	}
 
-	if c.dns.resolveGroup == nil {
-		dst, err = c.doDNSResolve(domain, mode, cacheTTL)
+	if r.resolveGroup == nil {
+		dst, err = r.doResolve(domain, mode, cacheTTL)
 	} else {
-		dst, err, _ = c.dns.resolveGroup.Do(domain, func() (*dial.Dst, error) {
-			return c.doDNSResolve(domain, mode, cacheTTL)
+		dst, err, _ = r.resolveGroup.Do(domain, func() (*dial.Dst, error) {
+			return r.doResolve(domain, mode, cacheTTL)
 		})
 	}
 

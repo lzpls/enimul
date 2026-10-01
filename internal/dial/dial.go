@@ -17,6 +17,8 @@ import (
 
 var emptyDialer net.Dialer
 
+type Func = func(ctx context.Context, network, address string) (net.Conn, error)
+
 const (
 	defaultDialTimeout = 10 * time.Second
 	defaultDialDelay   = 300 * time.Millisecond

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/freelru"
@@ -19,10 +20,11 @@ import (
 	"github.com/lzpls/enimul/internal/singleflight"
 )
 
-type ttlProbingFields struct {
-	calc         func(int) (int, error)
-	cache        *freelru.ShardedLRU[netip.Addr, int]
-	probingGroup *singleflight.Group[netip.AddrPort, int]
+type ttlProbeManager struct {
+	dialer          *dial.Dialer
+	calcTTL         func(int) (int, error)
+	ttlCache        *freelru.ShardedLRU[netip.Addr, int]
+	ttlProbingGroup *singleflight.Group[netip.AddrPort, int]
 }
 
 type TTLProbingConfig struct {
@@ -37,24 +39,25 @@ func buildHashFunc[K comparable]() freelru.HashKeyCallback[K] {
 	return func(k K) uint32 { return uint32(maphash.Comparable(seed, k)) }
 }
 
-func (c *Core) setTTLProbing(conf *TTLProbingConfig) error {
-	if err := c.loadTTLRules(conf.FakeTTLRules); err != nil {
-		return err
-	}
-	if conf.SingleFlight {
-		c.ttl.probingGroup = new(singleflight.Group[netip.AddrPort, int])
+func newTTLDesyncManager(conf *TTLProbingConfig, dialer *dial.Dialer) (*ttlProbeManager, error) {
+	m := &ttlProbeManager{dialer: dialer}
+	var err error
+	if m.calcTTL, err = genTTLCalcFunc(conf.FakeTTLRules); err != nil {
+		return nil, err
 	}
 	if !conf.DisableCache {
 		if conf.CacheCapacity == 0 {
 			conf.CacheCapacity = 1024
 		}
-		var err error
-		c.ttl.cache, err = freelru.NewSharded[netip.Addr, int](conf.CacheCapacity, buildHashFunc[netip.Addr]())
+		m.ttlCache, err = freelru.NewSharded[netip.Addr, int](conf.CacheCapacity, buildHashFunc[netip.Addr]())
 		if err != nil {
-			return E.WithStr("init ttl cache", err)
+			return nil, E.WithStr("init cache", err)
 		}
 	}
-	return nil
+	if conf.SingleFlight {
+		m.ttlProbingGroup = new(singleflight.Group[netip.AddrPort, int])
+	}
+	return m, nil
 }
 
 type ttlRule struct {
@@ -117,16 +120,15 @@ func parseTTLRules(conf string) ([]ttlRule, error) {
 	return rules, nil
 }
 
-func (c *Core) loadTTLRules(conf string) error {
-	if conf == "" {
-		c.ttl.calc = func(ttl int) (int, error) { return ttl - 1, nil }
-		return nil
+func genTTLCalcFunc(rulesStr string) (func(int) (int, error), error) {
+	if rulesStr == "" {
+		return func(ttl int) (int, error) { return ttl - 1, nil }, nil
 	}
-	rules, err := parseTTLRules(conf)
+	rules, err := parseTTLRules(rulesStr)
 	if err != nil {
-		return E.WithStr("parse ttl rules", err)
+		return nil, E.WithStr("parse ttl rules", err)
 	}
-	c.ttl.calc = func(ttl int) (int, error) {
+	return func(ttl int) (int, error) {
 		for _, r := range rules {
 			if ttl >= r.threshold {
 				if r.typ == '-' {
@@ -137,41 +139,40 @@ func (c *Core) loadTTLRules(conf string) error {
 			}
 		}
 		return 0, E.New("no matching ttl rule")
-	}
-	return nil
+	}, nil
 }
 
-func (c *Core) getMinimumReachableTTL(addr netip.AddrPort, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
-	if c.ttl.cache != nil {
-		if ttl, ok := c.ttl.cache.Get(addr.Addr().Unmap()); ok {
+func (m *ttlProbeManager) getMinimumReachableTTL(addr netip.AddrPort, maxTTL, attempts int, dialTimeout, cacheTTL time.Duration) (int, bool, error) {
+	if m.ttlCache != nil {
+		if ttl, ok := m.ttlCache.Get(addr.Addr().Unmap()); ok {
 			return ttl, true, nil
 		}
 	}
 
 	ttl := -1
 	var err error
-	if c.ttl.probingGroup != nil {
-		ttl, err, _ = c.ttl.probingGroup.Do(addr, func() (int, error) {
-			return c.probeMinimumReachableTTL(addr, maxTTL, attempts, dialTimeout, cacheTTL)
+	if m.ttlProbingGroup != nil {
+		ttl, err, _ = m.ttlProbingGroup.Do(addr, func() (int, error) {
+			return m.probeMinimumReachableTTL(addr, maxTTL, attempts, dialTimeout, cacheTTL)
 		})
 	} else {
-		ttl, err = c.probeMinimumReachableTTL(addr, maxTTL, attempts, dialTimeout, cacheTTL)
+		ttl, err = m.probeMinimumReachableTTL(addr, maxTTL, attempts, dialTimeout, cacheTTL)
 	}
 	return ttl, false, err
 }
 
-func (c *Core) getFakeTTL(logger log.Logger, p *Policy, addr netip.AddrPort) (int, error) {
+func (m *ttlProbeManager) getFakeTTL(logger log.Logger, p *Policy, addr netip.AddrPort) (int, error) {
 	if p.FakeTTL != 0 && p.FakeTTL != unsetInt {
 		return p.FakeTTL, nil
 	}
-	ttl, cached, err := c.getMinimumReachableTTL(addr, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
+	ttl, cached, err := m.getMinimumReachableTTL(addr, p.MaxTTL, p.Attempts, p.SingleTimeout, p.TTLCacheTTL)
 	if err != nil {
 		return -1, E.WithStr("get minimum reachable ttl", err)
 	}
 	if ttl == unsetInt {
 		return -1, E.New("reachable ttl not found")
 	}
-	if ttl, err = c.ttl.calc(ttl); err != nil {
+	if ttl, err = m.calcTTL(ttl); err != nil {
 		return -1, E.WithStr("calculate fake ttl", err)
 	}
 	if logger != nil {
@@ -191,7 +192,7 @@ func ttlLevelOption(isIPv6 bool) (int, int) {
 	return syscall.IPPROTO_IP, syscall.IP_TTL
 }
 
-func (c *Core) probeMinimumReachableTTL(
+func (m *ttlProbeManager) probeMinimumReachableTTL(
 	raddr netip.AddrPort,
 	maxTTL, attempts int,
 	dialTimeout, cacheTTL time.Duration,
@@ -221,7 +222,7 @@ func (c *Core) probeMinimumReachableTTL(
 		}
 		var ok bool
 		for range attempts {
-			conn, err := dialer.DialTCP(context.Background(), "tcp", c.dialer.GetLocalAddr(isIPv6), raddr)
+			conn, err := dialer.DialTCP(context.Background(), "tcp", m.dialer.GetLocalAddr(isIPv6), raddr)
 			if err == nil {
 				conn.Close()
 				ok = true
@@ -239,8 +240,8 @@ func (c *Core) probeMinimumReachableTTL(
 		}
 	}
 
-	if found != -1 && c.ttl.cache != nil && cacheTTL != 0 && cacheTTL != unsetInt {
-		c.ttl.cache.AddWithLifetime(ip, found, cacheTTL)
+	if found != -1 && m.ttlCache != nil && cacheTTL != 0 && cacheTTL != unsetInt {
+		m.ttlCache.AddWithLifetime(ip, found, cacheTTL)
 	}
 	return found, nil
 }
@@ -265,7 +266,7 @@ func desyncSend(
 		return E.WithStr("raw control", err)
 	}
 	if innerErr != nil {
-		return E.WithStr("get default ttl", err)
+		return E.WithStr("get default ttl", innerErr)
 	}
 
 	cut := findLastDotOrMidPos(record, sniStart, sniLen)

@@ -21,40 +21,40 @@ var defaultHTTPTransport = http.DefaultTransport.(*http.Transport).Clone()
 
 func init() { defaultHTTPTransport.Proxy = nil }
 
-func (c *Core) getHTTPConnID() uint32 {
+func (s *Server) getHTTPConnID() uint32 {
 	for {
-		old := c.httpConnID.Load()
+		old := s.httpConnID.Load()
 		new := old + 1
 		if new > maxConnID {
 			new = 1
 		}
-		if c.httpConnID.CompareAndSwap(old, new) {
+		if s.httpConnID.CompareAndSwap(old, new) {
 			return new
 		}
 	}
 }
 
-func (c *Core) serveHTTPProxy(listenAddr string) {
-	logger := c.newLogger("H[00000]")
+func (s *Server) serveHTTPProxy(listenAddr string) {
+	logger := s.logFactory.NewLogger("H[00000]")
 	ln, err := listenTCP(listenAddr)
 	if err != nil {
 		logger.Error("Failed to start HTTP proxy server: ", err)
 		return
 	}
 	logger.Info("HTTP proxy server started at ", ln.Addr())
-	server := http.Server{Handler: http.HandlerFunc(c.httpHandler)}
+	server := http.Server{Handler: http.HandlerFunc(s.httpHandler)}
 	defer server.Close()
 	if err := server.Serve(ln); err != nil {
 		logger.Error("HTTP serve: ", err)
 	}
 }
 
-func (c *Core) httpHandler(w http.ResponseWriter, req *http.Request) {
-	logger := c.newLogger(F.ConnIDToHex5("H", c.getHTTPConnID()))
+func (s *Server) httpHandler(w http.ResponseWriter, req *http.Request) {
+	logger := s.logFactory.NewLogger(F.ConnIDToHex5("H", s.getHTTPConnID()))
 	logger.Info(req.RemoteAddr, " - \"", req.Method, " ", req.RequestURI, " ", req.Proto, "\"")
 
 	if req.Method == http.MethodConnect {
-		c.handleHTTPConnect(logger, w, req)
+		s.handleHTTPConnect(logger, w, req)
 		return
 	}
 
@@ -64,10 +64,10 @@ func (c *Core) httpHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	c.forwardHTTPRequest(logger, w, req)
+	s.forwardHTTPRequest(logger, w, req)
 }
 
-func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) {
+func (s *Server) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *http.Request) {
 	oldDest := req.Host
 	if oldDest == "" {
 		logger.Error("Empty host")
@@ -81,7 +81,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 		return
 	}
 
-	dstHost, policy, fail, blocked, _ := c.genPolicy(logger, originHost, false, false)
+	dstHost, policy, fail, blocked, _ := s.policyEvaluator.genPolicy(logger, originHost, false, false)
 	if fail {
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
@@ -132,7 +132,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 
 	var dstConn *net.TCPConn
 	if !policy.ReplyFirst.IsTrue() {
-		dstConn, err = c.dialer.DialTimeout(dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
+		dstConn, err = s.dialer.DialTimeout(dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldDest, " failed: ", err)
 			_, err = cliConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
@@ -154,7 +154,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 	}
 
 	closeHere = false
-	c.handleTunnel(&tunnelSession{
+	s.handleTunnel(&tunnelSession{
 		logger:     logger,
 		p:          policy,
 		cliConn:    cliConn,
@@ -167,7 +167,7 @@ func (c *Core) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req *
 	})
 }
 
-func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *http.Request) {
+func (s *Server) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, originReq *http.Request) {
 	if originReq.URL.Scheme != "http" {
 		logger.Error("Invalid URL scheme: ", originReq)
 		return
@@ -186,7 +186,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 		port = "80"
 	}
 
-	dstHost, p, failed, blocked, _ := c.genPolicy(logger, originHost, false, false)
+	dstHost, p, failed, blocked, _ := s.policyEvaluator.genPolicy(logger, originHost, false, false)
 	if failed {
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
@@ -226,7 +226,7 @@ func (c *Core) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, orig
 
 	transport := defaultHTTPTransport.Clone()
 	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return c.dialer.DialContextTimeout(ctx, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
+		return s.dialer.DialContextTimeout(ctx, dstHost, dstPort, p.ConnectTimeout, p.DialDelay)
 	}
 
 	resp, err := transport.RoundTrip(outReq)

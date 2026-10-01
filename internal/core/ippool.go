@@ -407,17 +407,23 @@ func (p *IPPool) Get() *dial.Dst {
 	return &p.fallbackIP
 }
 
-func (c *Core) getIPPool(tag string) (*IPPool, error) {
-	if pool, ok := c.ipPools[tag]; ok {
+type ipPoolManager struct{ pools map[string]*IPPool }
+
+func (m *ipPoolManager) get(tag string) (*IPPool, error) {
+	if pool, ok := m.pools[tag]; ok {
 		return pool, nil
 	}
 	return nil, E.New("ip pool " + tag + " does not exist")
 }
 
-func (c *Core) getDstFromIPPool(tag string) (cur *dial.Dst, err error) {
-	pool, err := c.getIPPool(tag)
+func (m *ipPoolManager) getDstFrom(tag string) (cur *dial.Dst, err error) {
+	pool, err := m.get(tag)
 	if err != nil {
 		return nil, err
 	}
 	return pool.Get(), nil
+}
+
+func newIPPoolManager(ipPools map[string]*IPPool) *ipPoolManager {
+	return &ipPoolManager{pools: ipPools}
 }
