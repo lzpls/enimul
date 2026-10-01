@@ -115,12 +115,15 @@ func main() {
 }
 
 func showVersion() {
-	F.Err("lzpls/enimul " + core.Version + " built with " + runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH)
+	F.Err("lzpls/enimul " + core.Version +
+		" built with " + runtime.Version() +
+		" " + runtime.GOOS + "/" + runtime.GOARCH + "\n")
 }
 
 func showLicense() {
 	F.Err(`This project is licensed under the GNU Affero General Public License v3.0.
-Source code: https://github.com/lzpls/enimul`)
+Source code: https://github.com/lzpls/enimul
+`)
 }
 
 func configFromFile(path string, rejectUnknownMembers bool) (*core.Config, error) {
