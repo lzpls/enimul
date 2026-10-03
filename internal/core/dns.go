@@ -53,7 +53,7 @@ type DNSConfig struct {
 	DoHOutbound string `json:"doh_outbound"`
 }
 
-func newDNSResolver(cfg *DNSConfig, buildPolicyDoHTransport func(*url.URL) (dial.Func, error)) (*dnsResolver, error) {
+func newDNSResolver(cfg *DNSConfig, buildDoHDialFunc func(*url.URL) (dial.Func, error)) (*dnsResolver, error) {
 	if cfg.Addr == "" {
 		return nil, E.New("addr cannot be empty")
 	}
@@ -138,11 +138,10 @@ func newDNSResolver(cfg *DNSConfig, buildPolicyDoHTransport func(*url.URL) (dial
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		switch cfg.DoHOutbound {
 		case "", "policy": // default
-			transport.Proxy = nil
-			transport.DialContext, err = buildPolicyDoHTransport(dohURL)
-			if err != nil {
-				return nil, E.WithStr("build policy DoH transport", err)
+			if transport.DialContext, err = buildDoHDialFunc(dohURL); err != nil {
+				return nil, E.WithStr("build policy DoH function", err)
 			}
+			transport.Proxy = nil
 		case "direct":
 			transport.Proxy = nil
 		case "env":

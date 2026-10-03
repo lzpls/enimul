@@ -200,7 +200,7 @@ func (s *Server) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (
 		}
 		switch ts.p.SniffOverrideMode {
 		case SniffOverrideRouteOnly:
-			if sniPolicy, exists := s.policyEvaluator.domainPolicies.Find(sniStr); exists {
+			if sniPolicy, exists := s.policyEvaluator.getDomainPolicy(sniStr); exists {
 				switch sniPolicy.Mode {
 				case ModeBlock:
 					ts.logger.Info("Connection blocked: ", sniStr)

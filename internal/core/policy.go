@@ -480,13 +480,6 @@ const (
 	resolvePrefix    = "?"
 )
 
-func (e *policyEvaluator) getIPPolicy(ip netip.Addr) (*Policy, bool) {
-	if ip.Unmap().Is6() {
-		return e.ipv6Policies.Find(ip)
-	}
-	return e.ipv4Policies.Find(ip)
-}
-
 type policyConn struct {
 	*net.TCPConn
 	ttlProbeManager *ttlProbeManager
@@ -540,7 +533,13 @@ func (c *policyConn) Write(b []byte) (n int, err error) {
 	return
 }
 
-func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, ipPoolManager *ipPoolManager, ttlProbeManager *ttlProbeManager) (dial.Func, error) {
+func genDoHDialFunc(
+	dohURL *url.URL,
+	dialer *dial.Dialer,
+	ipPoolManager *ipPoolManager,
+	ttlProbeManager *ttlProbeManager,
+	routeMatcher *routeMatcher,
+) (dial.Func, error) {
 	if dohURL.Scheme != "https" || dohURL.Host == "" {
 		return nil, E.New("invalid DoH URL")
 	}
@@ -550,7 +549,7 @@ func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, i
 	if dstPort == "" {
 		dstPort = "443"
 	}
-	policy := e.defaultPolicy
+	policy := routeMatcher.getDefaultPolicy()
 
 	var (
 		finalDst                              *dial.Dst
@@ -559,7 +558,7 @@ func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, i
 	)
 
 	if ip, err := netip.ParseAddr(originHost); err == nil {
-		ipPolicy, _ = e.getIPPolicy(ip)
+		ipPolicy, _ = routeMatcher.getIPPolicy(ip)
 		if ipPolicy != nil {
 			policy = mergePolicies(ipPolicy, policy)
 		}
@@ -569,7 +568,7 @@ func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, i
 			return nil, err
 		}
 	} else {
-		domainPolicy, hasDomainPolicy = e.domainPolicies.Find(originHost)
+		domainPolicy, hasDomainPolicy = routeMatcher.getDomainPolicy(originHost)
 		if hasDomainPolicy {
 			policy = mergePolicies(domainPolicy, policy)
 		}
@@ -581,7 +580,7 @@ func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, i
 		var single string
 		single, noRedirect = stripNoRedirectPrefix(host.Single())
 		if host.IsZero() || single == "" {
-			if hostFromHosts, ok := e.hosts.Find(originHost); ok {
+			if hostFromHosts, ok := routeMatcher.getHosts(originHost); ok {
 				if hostFromHosts.IsMulti() {
 					finalDst = hostFromHosts
 					goto brk
@@ -603,7 +602,7 @@ func (e *policyEvaluator) genDoHDialFunc(dohURL *url.URL, dialer *dial.Dialer, i
 				finalDst = dial.NewSingleDst(single)
 				goto brk
 			}
-			ipPolicy, _ = e.getIPPolicy(ip)
+			ipPolicy, _ = routeMatcher.getIPPolicy(ip)
 			if ipPolicy == nil {
 				finalDst = dial.NewSingleDst(single)
 				goto brk
@@ -651,15 +650,15 @@ brk:
 		}, nil
 	}
 	return func(ctx context.Context, network, _ string) (net.Conn, error) {
-		final, ipPolicy, err := e.ipRedirect(nil, pool.Get().Single())
+		final, ipPolicy, err := ipRedirect(nil, pool.Get().Single(), routeMatcher, ipPoolManager)
 		if err != nil {
 			return nil, E.WithStr("ip redirect", err)
 		}
 		var p *Policy
 		if hasDomainPolicy {
-			p = mergePolicies(domainPolicy, ipPolicy, e.defaultPolicy)
+			p = mergePolicies(domainPolicy, ipPolicy, routeMatcher.getDefaultPolicy())
 		} else {
-			p = mergePolicies(ipPolicy, e.defaultPolicy)
+			p = mergePolicies(ipPolicy, routeMatcher.getDefaultPolicy())
 		}
 		switch p.Mode {
 		case ModeBlock, ModeTLSAlert:
@@ -707,13 +706,9 @@ func stripNoRedirectPrefix(s string) (string, bool) {
 }
 
 type policyEvaluator struct {
-	hosts          *addrtrie.DomainMatcher[*dial.Dst]
-	defaultPolicy  *Policy
-	domainPolicies *addrtrie.DomainMatcher[*Policy]
-	ipv4Policies   *addrtrie.IPv4Trie[*Policy]
-	ipv6Policies   *addrtrie.IPv6Trie[*Policy]
-	ipPoolManager  *ipPoolManager
-	dnsResolver    *dnsResolver
+	*routeMatcher
+	ipPoolManager *ipPoolManager
+	dnsResolver   *dnsResolver
 }
 
 func (e *policyEvaluator) genPolicy(
@@ -741,7 +736,7 @@ func (e *policyEvaluator) genPolicy(
 		return
 	}
 
-	domainPolicy, hasDomainPolicy := e.domainPolicies.Find(originHost)
+	domainPolicy, hasDomainPolicy := e.getDomainPolicy(originHost)
 	if hasDomainPolicy {
 		if domainPolicy.Mode == ModeBlock {
 			return nil, nil, false, true, false
@@ -759,7 +754,7 @@ func (e *policyEvaluator) genPolicy(
 	single, noRedirect := stripNoRedirectPrefix(host.Single())
 	fromHosts := false
 	if host.IsZero() || single == "" {
-		if hostFromHosts, ok := e.hosts.Find(originHost); ok {
+		if hostFromHosts, ok := e.getHosts(originHost); ok {
 			if hostFromHosts.IsMulti() {
 				host = hostFromHosts
 				return
@@ -864,12 +859,41 @@ func (e *policyEvaluator) genPolicy(
 	return
 }
 
+type routeMatcher struct {
+	defaultPolicy  *Policy
+	domainPolicies *addrtrie.DomainMatcher[*Policy]
+	ipv4Policies   *addrtrie.IPv4Trie[*Policy]
+	ipv6Policies   *addrtrie.IPv6Trie[*Policy]
+	hosts          *addrtrie.DomainMatcher[*dial.Dst]
+}
+
+func (m *routeMatcher) getDefaultPolicy() *Policy { return m.defaultPolicy }
+
+func (m *routeMatcher) getIPPolicy(ip netip.Addr) (*Policy, bool) {
+	if ip.Unmap().Is6() {
+		return m.ipv6Policies.Find(ip)
+	}
+	return m.ipv4Policies.Find(ip)
+}
+
+func (m *routeMatcher) getDomainPolicy(domain string) (*Policy, bool) {
+	return m.domainPolicies.Find(domain)
+}
+
+func (m *routeMatcher) getHosts(domain string) (*dial.Dst, bool) {
+	return m.hosts.Find(domain)
+}
+
 func (e *policyEvaluator) ipRedirect(logger log.Logger, host string) (*dial.Dst, *Policy, error) {
+	return ipRedirect(logger, host, e.routeMatcher, e.ipPoolManager)
+}
+
+func ipRedirect(logger log.Logger, host string, routeMatcher *routeMatcher, ipPoolManager *ipPoolManager) (*dial.Dst, *Policy, error) {
 	ip, err := netip.ParseAddr(host)
 	if err != nil {
 		return dial.NewSingleDst(host), nil, nil
 	}
-	policy, exists := e.getIPPolicy(ip)
+	policy, exists := routeMatcher.getIPPolicy(ip)
 	if !exists {
 		return dial.NewSingleDst(host), nil, nil
 	}
@@ -884,7 +908,7 @@ func (e *policyEvaluator) ipRedirect(logger log.Logger, host string) (*dial.Dst,
 		return dial.NewSingleDst(host), policy, nil
 	}
 	if strings.HasPrefix(mapTo, ipPoolTagPrefix) {
-		cur, err := e.ipPoolManager.getDstFrom(mapTo[1:])
+		cur, err := ipPoolManager.getDstFrom(mapTo[1:])
 		if err != nil {
 			return nil, nil, err
 		}

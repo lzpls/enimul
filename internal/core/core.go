@@ -230,22 +230,20 @@ func (b *Builder) Build() (*Server, error) {
 		return nil, E.WithStr("create ttl probe manager", err)
 	}
 
-	policyEvaluator := &policyEvaluator{
+	routeMatcher := &routeMatcher{
 		hosts:          b.hosts,
 		defaultPolicy:  b.defaultPolicy,
 		domainPolicies: b.domainPolicies,
 		ipv4Policies:   b.ipv4Policies,
 		ipv6Policies:   b.ipv6Policies,
-		ipPoolManager:  ipPoolManager,
 	}
 
 	dnsResolver, err := newDNSResolver(b.dnsConfig, func(u *url.URL) (dial.Func, error) {
-		return policyEvaluator.genDoHDialFunc(u, dialer, ipPoolManager, ttlProbeManager)
+		return genDoHDialFunc(u, dialer, ipPoolManager, ttlProbeManager, routeMatcher)
 	})
 	if err != nil {
 		return nil, E.WithStr("create dns resolver", err)
 	}
-	policyEvaluator.dnsResolver = dnsResolver
 
 	return &Server{
 		logFactory: logFactory,
@@ -256,8 +254,12 @@ func (b *Builder) Build() (*Server, error) {
 		},
 		dialer:          dialer,
 		ttlProbeManager: ttlProbeManager,
-		policyEvaluator: policyEvaluator,
 		dnsResolver:     dnsResolver,
+		policyEvaluator: &policyEvaluator{
+			routeMatcher:  routeMatcher,
+			ipPoolManager: ipPoolManager,
+			dnsResolver:   dnsResolver,
+		},
 	}, nil
 }
 
