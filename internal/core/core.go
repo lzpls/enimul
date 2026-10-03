@@ -14,7 +14,7 @@ import (
 	"github.com/lzpls/enimul/internal/orderedmap"
 )
 
-const Version = "v0.7.1"
+const Version = "v0.7.2"
 
 type inboundAddrs struct{ socks5, http, sniProxy string }
 
