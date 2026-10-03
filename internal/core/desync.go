@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"hash/maphash"
 	"net"
 	"net/netip"
@@ -62,47 +63,55 @@ func newTTLDesyncManager(conf *TTLProbingConfig, dialer *dial.Dialer) (*ttlProbe
 
 type ttlRule struct {
 	threshold int
-	typ       byte
+	typ       byte // '-' or '='
 	val       int
 }
 
-func parseTTLRules(conf string) ([]ttlRule, error) {
-	b := []byte(conf)
+func parseTTLRules(input string) ([]ttlRule, error) {
+	b := []byte(input)
 	var rules []ttlRule
 	i := 0
+
+	seenThresholds := make(map[int]struct{})
+
 	for i < len(b) {
-		start := i
+		thresholdStart := i
 		for i < len(b) && b[i] >= '0' && b[i] <= '9' {
 			i++
 		}
-		if start == i {
-			return nil, E.New("invalid rule: missing left number")
+		if thresholdStart == i {
+			return nil, fmt.Errorf("missing left number at offset %d", thresholdStart)
 		}
 		a := 0
-		for _, c := range b[start:i] {
+		for _, c := range b[thresholdStart:i] {
 			a = a*10 + int(c-'0')
 		}
 
 		if i >= len(b) {
-			return nil, E.New("invalid rule: missing operator")
+			return nil, fmt.Errorf("missing operator at offset %d", i)
 		}
 		op := b[i]
 		if op != '-' && op != '=' {
-			return nil, E.New("invalid operator")
+			return nil, fmt.Errorf("invalid operator at offset %d", i)
 		}
 		i++
 
-		start = i
+		valStart := i
 		for i < len(b) && b[i] >= '0' && b[i] <= '9' {
 			i++
 		}
-		if start == i {
-			return nil, E.New("invalid rule: missing right number")
+		if valStart == i {
+			return nil, fmt.Errorf("missing right number at offset %d", valStart)
 		}
 		val := 0
-		for _, c := range b[start:i] {
+		for _, c := range b[valStart:i] {
 			val = val*10 + int(c-'0')
 		}
+
+		if _, ok := seenThresholds[a]; ok {
+			return nil, fmt.Errorf("duplicate threshold %d at offset %d", a, thresholdStart)
+		}
+		seenThresholds[a] = struct{}{}
 
 		rules = append(rules, ttlRule{
 			threshold: a,
@@ -114,9 +123,11 @@ func parseTTLRules(conf string) ([]ttlRule, error) {
 			i++
 		}
 	}
+
 	sort.Slice(rules, func(i, j int) bool {
 		return rules[i].threshold > rules[j].threshold
 	})
+
 	return rules, nil
 }
 
