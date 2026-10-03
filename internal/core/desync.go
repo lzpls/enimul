@@ -3,12 +3,13 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"hash/maphash"
 	"net"
 	"net/netip"
-	"sort"
+	"slices"
 	"syscall"
 	"time"
 
@@ -124,8 +125,8 @@ func parseTTLRules(input string) ([]ttlRule, error) {
 		}
 	}
 
-	sort.Slice(rules, func(i, j int) bool {
-		return rules[i].threshold > rules[j].threshold
+	slices.SortFunc(rules, func(a, b ttlRule) int {
+		return cmp.Compare(b.threshold, a.threshold)
 	})
 
 	return rules, nil

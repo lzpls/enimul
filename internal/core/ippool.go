@@ -1,12 +1,13 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
 	"net"
 	"net/netip"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -324,11 +325,11 @@ func (p *IPPool) updateBest(results []ipResult) {
 		return
 	}
 
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].loss != results[j].loss {
-			return results[i].loss < results[j].loss
+	slices.SortStableFunc(results, func(a, b ipResult) int {
+		if c := cmp.Compare(a.loss, b.loss); c != 0 {
+			return c
 		}
-		return results[i].latency < results[j].latency
+		return cmp.Compare(a.latency, b.latency)
 	})
 
 	p.mu.Lock()
