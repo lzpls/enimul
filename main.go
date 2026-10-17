@@ -13,7 +13,6 @@ import (
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/jsonx"
 	"github.com/lzpls/enimul/internal/log"
-	"github.com/lzpls/enimul/internal/orderedmap"
 	_ "github.com/lzpls/enimul/internal/platform"
 )
 
@@ -70,12 +69,13 @@ func main() {
 		}
 	}
 
-	builder := core.NewBuilder()
 	if rejectUnknownMembers {
-		orderedmap.DisallowUnknownFields = true
+		jsonx.DisallowUnknownFields()
 	}
+
+	builder := core.NewBuilder()
 	for _, path := range configPaths {
-		cfg, err := configFromFile(path, rejectUnknownMembers)
+		cfg, err := configFromFile(path)
 		if err != nil {
 			F.Errf("Failed to load config %q: %v", path, err)
 			os.Exit(1)
@@ -108,7 +108,7 @@ func main() {
 
 	startPprofServer()
 
-	done:= instance.Serve()
+	done := instance.Serve()
 	if runGC {
 		debug.FreeOSMemory()
 	}
@@ -127,7 +127,7 @@ Source code: https://github.com/lzpls/enimul
 `)
 }
 
-func configFromFile(path string, rejectUnknownMembers bool) (*core.Config, error) {
+func configFromFile(path string) (*core.Config, error) {
 	var data []byte
 	var err error
 	if path == "stdin" {
@@ -138,8 +138,8 @@ func configFromFile(path string, rejectUnknownMembers bool) (*core.Config, error
 	if err != nil {
 		return nil, E.WithStr("read config", err)
 	}
-	cfg, err := decodeConfig(jsonx.ToJSONInPlace(data), rejectUnknownMembers)
-	if err != nil {
+	cfg := new(core.Config)
+	if err := jsonx.Unmarshal(jsonx.ToJSONInPlace(data), cfg); err != nil {
 		return nil, E.WithStr("decode config", err)
 	}
 	return cfg, nil

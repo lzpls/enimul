@@ -1,7 +1,6 @@
-package orderedmap
+package jsonx
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,12 +9,12 @@ import (
 	E "github.com/lzpls/enimul/internal/errors"
 )
 
-type Map[T any] struct {
+type OrderedMap[T any] struct {
 	keys   []string
 	values map[string]T
 }
 
-func (m *Map[T]) Get(key string) (value T, ok bool) {
+func (m *OrderedMap[T]) Get(key string) (value T, ok bool) {
 	if m == nil || m.values == nil {
 		return
 	}
@@ -23,27 +22,22 @@ func (m *Map[T]) Get(key string) (value T, ok bool) {
 	return
 }
 
-func (m *Map[T]) Len() int {
+func (m *OrderedMap[T]) Len() int {
 	if m == nil {
 		return 0
 	}
 	return len(m.keys)
 }
 
-var DisallowUnknownFields bool
-
-func (m *Map[T]) UnmarshalJSON(data []byte) error {
+func (m *OrderedMap[T]) UnmarshalJSON(data []byte) error {
 	if m == nil {
-		return E.New("orderedmap: unmarshal nil Map")
+		return E.New("orderedmap: unmarshal nil OrderedMap")
 	}
 
 	keys := make([]string, 0)
 	values := make(map[string]T)
 
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	if DisallowUnknownFields {
-		decoder.DisallowUnknownFields()
-	}
+	decoder := newDecoderFromBytes(data)
 
 	token, err := decoder.Token()
 	if err != nil {
@@ -105,7 +99,7 @@ func (m *Map[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (m *Map[T]) All() iter.Seq2[string, T] {
+func (m *OrderedMap[T]) All() iter.Seq2[string, T] {
 	return func(yield func(string, T) bool) {
 		if m == nil {
 			return

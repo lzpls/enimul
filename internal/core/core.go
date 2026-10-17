@@ -10,8 +10,8 @@ import (
 	"github.com/lzpls/enimul/internal/addrtrie"
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
+	"github.com/lzpls/enimul/internal/jsonx"
 	"github.com/lzpls/enimul/internal/log"
-	"github.com/lzpls/enimul/internal/orderedmap"
 )
 
 const Version = "v0.7.2"
@@ -51,19 +51,19 @@ func (s *Server) Serve() <-chan struct{} {
 }
 
 type Config struct {
-	LogLevel         log.Level                     `json:"log_level"`
-	LogOutput        *string                       `json:"log_output"`
-	Socks5Addr       *string                       `json:"socks5_address"`
-	HttpAddr         *string                       `json:"http_address"`
-	SNIProxyAddr     *string                       `json:"sniproxy_address"`
-	OutboundBinding  *dial.BindingOption           `json:"outbound_binding"`
-	DNSConfig        *DNSConfig                    `json:"dns"`
-	TTLProbingConfig *TTLProbingConfig             `json:"ttl_probing"`
-	IPPools          map[string]IPPoolOptions      `json:"ip_pools"`
-	Hosts            orderedmap.Map[dial.Dst]      `json:"hosts"`
-	DefaultPolicy    *PolicyOptions                `json:"default_policy"`
-	DomainPolicies   orderedmap.Map[PolicyOptions] `json:"domain_policies"`
-	IpPolicies       orderedmap.Map[PolicyOptions] `json:"ip_policies"`
+	LogLevel         log.Level                       `json:"log_level"`
+	LogOutput        *string                         `json:"log_output"`
+	Socks5Addr       *string                         `json:"socks5_address"`
+	HttpAddr         *string                         `json:"http_address"`
+	SNIProxyAddr     *string                         `json:"sniproxy_address"`
+	OutboundBinding  *dial.BindingOption             `json:"outbound_binding"`
+	DNSConfig        *DNSConfig                      `json:"dns"`
+	TTLProbingConfig *TTLProbingConfig               `json:"ttl_probing"`
+	IPPools          map[string]IPPoolOptions        `json:"ip_pools"`
+	Hosts            jsonx.OrderedMap[dial.Dst]      `json:"hosts"`
+	DefaultPolicy    *PolicyOptions                  `json:"default_policy"`
+	DomainPolicies   jsonx.OrderedMap[PolicyOptions] `json:"domain_policies"`
+	IpPolicies       jsonx.OrderedMap[PolicyOptions] `json:"ip_policies"`
 }
 
 type Builder struct {
