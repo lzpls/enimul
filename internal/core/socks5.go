@@ -12,13 +12,13 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 )
 
-var (
-	noAuthReply                 = [2]byte{0x5, 0x0}
-	socks5ReplySuccess          = [10]byte{0x5, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
-	socks5ReplyServerFailure    = [10]byte{0x5, 0x1, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
-	socks5ReplyConnNotAllowed   = [10]byte{0x5, 0x2, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
-	socks5ReplyCmdNotSupported  = [10]byte{0x5, 0x7, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
-	socks5ReplyAtypNotSupported = [10]byte{0x5, 0x8, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+const (
+	socks5NoAuthReply           = "\x05\x00"
+	socks5ReplySuccess          = "\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyServerFailure    = "\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyConnNotAllowed   = "\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyCmdNotSupported  = "\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyAtypNotSupported = "\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00"
 )
 
 func (s *Server) serveSOCKS5(listenAddr string) {
@@ -64,8 +64,8 @@ func readN(conn *net.TCPConn, buf []byte) ([]byte, error) {
 	return buf, err
 }
 
-func sendReply(logger log.Logger, conn *net.TCPConn, reply [10]byte) bool {
-	if _, err := conn.Write(reply[:]); err != nil {
+func sendReply(logger log.Logger, conn *net.TCPConn, reply string) bool {
+	if _, err := conn.Write([]byte(reply)); err != nil {
 		logger.Error("Send SOCKS5 reply: ", err)
 		return false
 	}
@@ -105,7 +105,7 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		logger.Error("`no auth` method not found")
 		return
 	}
-	if _, err = cliConn.Write(noAuthReply[:]); err != nil {
+	if _, err = cliConn.Write([]byte(socks5NoAuthReply)); err != nil {
 		logger.Error("Send auth method: ", err)
 		return
 	}
