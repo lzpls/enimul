@@ -46,6 +46,11 @@ func main() {
 		showLicense()
 	}
 	flag.Parse()
+	if flag.NArg() > 0 {
+		F.Errln("Invalid arguments")
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	if printVersion {
 		showVersion()
