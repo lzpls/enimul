@@ -30,23 +30,16 @@ type Server struct {
 	httpConnID      atomic.Uint32
 }
 
-func (s *Server) Serve() (<-chan struct{}, bool) {
+func (s *Server) Serve() <-chan struct{} {
 	var wg sync.WaitGroup
-	n := 0
 	if addr := s.inboundAddrs.socks5; inboundIsEnabled(addr) {
-		n++
 		wg.Go(func() { s.serveSOCKS5(addr) })
 	}
 	if addr := s.inboundAddrs.http; inboundIsEnabled(addr) {
-		n++
 		wg.Go(func() { s.serveHTTPProxy(addr) })
 	}
 	if addr := s.inboundAddrs.sniProxy; inboundIsEnabled(addr) {
-		n++
 		wg.Go(func() { s.serveSNIProxy(addr) })
-	}
-	if n == 0 {
-		return nil, false
 	}
 	s.inboundAddrs = nil
 	done := make(chan struct{})
@@ -54,7 +47,7 @@ func (s *Server) Serve() (<-chan struct{}, bool) {
 		defer close(done)
 		wg.Wait()
 	}()
-	return done, true
+	return done
 }
 
 type Config struct {
@@ -198,6 +191,12 @@ func (b *Builder) Merge(cfg *Config) error {
 }
 
 func (b *Builder) Build() (*Server, error) {
+	if !inboundIsEnabled(*b.socks5Addr) &&
+		!inboundIsEnabled(*b.httpAddr) &&
+		!inboundIsEnabled(*b.sniProxyAddr) {
+		return nil, E.New("no inbound specified")
+	}
+
 	out, err := log.NewOutput(*b.logOutput)
 	if err != nil {
 		return nil, E.WithStr("create log output", err)
@@ -219,11 +218,7 @@ func (b *Builder) Build() (*Server, error) {
 			}
 			ipPools[tag] = pool
 		}
-		for _, pool := range ipPools {
-			pool.Start()
-		}
 	}
-	ipPoolManager := newIPPoolManager(ipPools)
 
 	ttlProbeManager, err := newTTLDesyncManager(b.ttlProbingConfig, dialer)
 	if err != nil {
@@ -237,6 +232,7 @@ func (b *Builder) Build() (*Server, error) {
 		ipv4Policies:   b.ipv4Policies,
 		ipv6Policies:   b.ipv6Policies,
 	}
+	ipPoolManager := newIPPoolManager(ipPools)
 
 	dnsResolver, err := newDNSResolver(b.dnsConfig, func(u *url.URL) (dial.Func, error) {
 		return genDoHDialFunc(u, dialer, ipPoolManager, ttlProbeManager, routeMatcher)
@@ -244,6 +240,8 @@ func (b *Builder) Build() (*Server, error) {
 	if err != nil {
 		return nil, E.WithStr("create dns resolver", err)
 	}
+
+	ipPoolManager.start()
 
 	return &Server{
 		logFactory: logFactory,

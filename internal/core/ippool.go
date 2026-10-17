@@ -241,7 +241,7 @@ func parseIPList(sources, excluded []string) ([]netip.Addr, error) {
 	return ips, nil
 }
 
-func (p *IPPool) Start() {
+func (p *IPPool) start() {
 	if p.waitScanOnStartUp {
 		p.scan()
 		go p.monitor()
@@ -423,6 +423,12 @@ func (m *ipPoolManager) getDstFrom(tag string) (cur *dial.Dst, err error) {
 		return nil, err
 	}
 	return pool.Get(), nil
+}
+
+func (m *ipPoolManager) start() {
+	for _, pool := range m.pools {
+		pool.start()
+	}
 }
 
 func newIPPoolManager(ipPools map[string]*IPPool) *ipPoolManager {

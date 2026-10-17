@@ -81,13 +81,15 @@ func main() {
 		}
 	}
 
-	builder.Merge(&core.Config{
+	if err := builder.Merge(&core.Config{
 		LogLevel:     logLevel,
 		LogOutput:    ptrOrNil(logOutput),
 		Socks5Addr:   ptrOrNil(socks5Addr),
 		HttpAddr:     ptrOrNil(httpAddr),
 		SNIProxyAddr: ptrOrNil(sniAddr),
-	})
+	}); err != nil {
+		panic(err)
+	}
 
 	instance, err := builder.Build()
 	if err != nil {
@@ -101,12 +103,7 @@ func main() {
 
 	startPprofServer()
 
-	done, ok := instance.Serve()
-	if !ok {
-		F.Errln("No inbound specified")
-		os.Exit(1)
-	}
-
+	done:= instance.Serve()
 	if runGC {
 		debug.FreeOSMemory()
 	}
