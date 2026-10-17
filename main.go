@@ -35,7 +35,7 @@ func main() {
 	sniAddr := flag.String("spb", "", "SNI proxy listen address (override config)")
 	flag.BoolVar(&rejectUnknownMembers, "duf", false, "Reject configs containing unknown fields")
 	flag.IntVar(&maxProcs, "mp", 0, "GOMAXPROCS")
-	flag.BoolVar(&runGC, "rungc", false, "Run runtime.GC and debug.FreeOSMemory after initiation")
+	flag.BoolVar(&runGC, "rungc", false, "Run debug.FreeOSMemory after initiation")
 	flag.BoolVar(&printLicense, "license", false, "Show license and exit")
 	flag.BoolVar(&printVersion, "v", false, "Show current version and exit")
 
@@ -108,7 +108,6 @@ func main() {
 	}
 
 	if runGC {
-		runtime.GC()
 		debug.FreeOSMemory()
 	}
 	<-done
