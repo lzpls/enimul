@@ -58,6 +58,7 @@ func (s *Server) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) 
 	closeHere := true
 	defer func() {
 		if closeHere {
+			conn.SetLinger(0)
 			conn.Close()
 		}
 	}()

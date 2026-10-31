@@ -76,6 +76,7 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	closeHere := true
 	defer func() {
 		if closeHere {
+			cliConn.SetLinger(0)
 			cliConn.Close()
 		}
 	}()

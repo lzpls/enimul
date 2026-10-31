@@ -116,19 +116,20 @@ func (s *Server) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req
 		http.Error(w, status500, http.StatusInternalServerError)
 		return
 	}
-	closeHere := true
-	defer func() {
-		if closeHere {
-			conn.Close()
-		}
-	}()
-
 	cliConn, ok := conn.(*net.TCPConn)
 	if !ok {
 		logger.Error("Not a *net.TCPConn")
 		http.Error(w, status500, http.StatusInternalServerError)
+		conn.Close()
 		return
 	}
+	closeHere := true
+	defer func() {
+		if closeHere {
+			cliConn.SetLinger(0)
+			conn.Close()
+		}
+	}()
 
 	var dstConn *net.TCPConn
 	if !policy.ReplyFirst.IsTrue() {
