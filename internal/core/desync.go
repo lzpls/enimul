@@ -15,7 +15,6 @@ import (
 
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
-	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/freelru"
 	"github.com/lzpls/enimul/internal/log"
 	"github.com/lzpls/enimul/internal/platform"
@@ -232,23 +231,16 @@ func (m *ttlProbeManager) probeMinimumReachableTTL(
 			}
 			return innerErr
 		}
-		var ok bool
 		for range attempts {
 			conn, err := dialer.DialTCP(context.Background(), "tcp", m.dialer.GetLocalAddr(isIPv6), raddr)
-			if err == nil {
-				conn.Close()
-				ok = true
-				break
+			if err != nil {
+				low = mid + 1
+				continue
 			}
-			if te, ok := err.(timeoutError); !ok || !te.Timeout() {
-				return unsetInt, E.WithStr("dial with ttl "+F.Int(mid), err)
-			}
-		}
-		if ok {
+			conn.Close()
 			found = mid
 			high = mid - 1
-		} else {
-			low = mid + 1
+			break
 		}
 	}
 
