@@ -14,7 +14,7 @@ import (
 	"github.com/lzpls/enimul/internal/log"
 )
 
-const Version = "v0.7.3"
+const Version = "v0.7.4"
 
 type inboundAddrs struct{ socks5, http, sniProxy string }
 
