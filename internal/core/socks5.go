@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/lzpls/enimul/internal/dial"
@@ -72,6 +73,8 @@ func sendReply(logger log.Logger, conn *net.TCPConn, reply string) bool {
 	return true
 }
 
+var socks5BufferPool = sync.Pool{New: func() any { return new([256]byte) }}
+
 func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	closeHere := true
 	defer func() {
@@ -95,7 +98,12 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		return
 	}
 
-	var buf [256]byte
+	buf := socks5BufferPool.Get().(*[256]byte)
+	defer func() {
+		if closeHere {
+			socks5BufferPool.Put(buf)
+		}
+	}()
 	methods, err := readN(cliConn, buf[:header[1]])
 	if err != nil {
 		logger.Error("Read methods: ", err)
@@ -217,6 +225,7 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	}
 
 	closeHere = false
+	socks5BufferPool.Put(buf)
 	s.handleTunnel(&tunnelSession{
 		logger:     logger,
 		p:          policy,
