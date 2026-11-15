@@ -42,6 +42,8 @@ func Append(b []byte, args ...any) []byte {
 			b = append(b, a.Error()...)
 		case string:
 			b = append(b, a...)
+		case []byte:
+			b = append(b, a...)
 		case int:
 			b = strconv.AppendInt(b, int64(a), 10)
 		case int8:
