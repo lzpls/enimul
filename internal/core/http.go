@@ -123,38 +123,32 @@ func (s *Server) handleHTTPConnect(logger log.Logger, w http.ResponseWriter, req
 		conn.Close()
 		return
 	}
-	closeHere := true
-	defer func() {
-		if closeHere {
-			cliConn.SetLinger(0)
-			conn.Close()
-		}
-	}()
-
 	var dstConn *net.TCPConn
+	closeConns := deferred(func() {
+		if dstConn != nil {
+			dstConn.Close()
+		}
+		cliConn.SetLinger(0)
+		conn.Close()
+	})
+	defer closeConns.do()
+
 	if !policy.ReplyFirst.IsTrue() {
 		dstConn, err = s.dialer.DialTimeout(dstHost, dstPort, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldDest, " failed: ", err)
-			_, err = cliConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-			if err != nil {
+			if _, err = cliConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n")); err != nil {
 				logger.Error("Send 502: ", err)
 			}
 			return
 		}
-		defer func() {
-			if closeHere {
-				dstConn.Close()
-			}
-		}()
 	}
-	_, err = cliConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-	if err != nil {
+	if _, err = cliConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		logger.Error("Send 200: ", err)
 		return
 	}
 
-	closeHere = false
+	closeConns.disarm()
 	s.handleTunnel(&tunnelSession{
 		logger:     logger,
 		p:          policy,

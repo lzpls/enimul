@@ -28,19 +28,15 @@ type tunnelSession = struct {
 }
 
 func (s *Server) handleTunnel(ts *tunnelSession) {
-	var (
-		err       error
-		closeHere = true
-	)
-	defer func() {
-		if closeHere {
-			ts.cliConn.Close()
-			if ts.dstConn != nil {
-				ts.dstConn.Close()
-			}
+	closeConns := deferred(func() {
+		ts.cliConn.Close()
+		if ts.dstConn != nil {
+			ts.dstConn.Close()
 		}
-	}()
+	})
+	defer closeConns.do()
 
+	var err error
 	if ts.p.Mode == ModeRaw {
 		if ts.dstConn == nil {
 			ts.dstConn, err = s.dialer.DialTimeout(ts.target, ts.port, ts.p.ConnectTimeout, ts.p.DialDelay)
@@ -85,7 +81,7 @@ func (s *Server) handleTunnel(ts *tunnelSession) {
 		}
 	}
 
-	closeHere = false
+	closeConns.disarm()
 	forwardTCP(ts.logger, ts.cliConn, ts.dstConn, ts.originHost)
 }
 

@@ -295,3 +295,20 @@ func expandPattern(s string) []string {
 
 	return result
 }
+
+type deferred func()
+
+func (d *deferred) do() {
+	if d == nil || *d == nil {
+		return
+	}
+	f := *d
+	*d = nil
+	f()
+}
+
+func (d *deferred) disarm() {
+	if d != nil {
+		*d = nil
+	}
+}

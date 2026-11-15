@@ -228,7 +228,8 @@ func buildDoHExchangeFunc(httpClient *http.Client, addr string) dnsExchangeFunc 
 		if err != nil {
 			return nil, E.WithStr("http request", err)
 		}
-		defer httpResp.Body.Close()
+		closeBody := deferred(func() { httpResp.Body.Close() })
+		defer closeBody.do()
 		if httpResp.StatusCode != http.StatusOK {
 			return nil, E.New("bad http status: " + httpResp.Status)
 		}
@@ -236,6 +237,7 @@ func buildDoHExchangeFunc(httpClient *http.Client, addr string) dnsExchangeFunc 
 		if err != nil {
 			return nil, E.WithStr("read http body", err)
 		}
+		closeBody.do()
 		resp := new(dns.Msg)
 		if err = resp.Unpack(respWire); err != nil {
 			return nil, E.WithStr("unpack dns response", err)

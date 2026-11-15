@@ -55,13 +55,11 @@ func (s *Server) serveSNIProxy(listenAddr string) {
 }
 
 func (s *Server) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) {
-	closeHere := true
-	defer func() {
-		if closeHere {
-			conn.SetLinger(0)
-			conn.Close()
-		}
-	}()
+	closeClientConn := deferred(func() {
+		conn.SetLinger(0)
+		conn.Close()
+	})
+	defer closeClientConn.do()
 
 	logger := s.logFactory.NewLogger(F.ConnIDToHex5("SP", connID))
 	logger.Info("Connection from ", conn.RemoteAddr())
@@ -89,11 +87,18 @@ func (s *Server) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) 
 		originPort:   port,
 		fromSNIProxy: true,
 	}
+	closeDstConn := deferred(func() {
+		if ts.dstConn != nil {
+			ts.dstConn.Close()
+		}
+	})
+	defer closeDstConn.do()
 	payloadLen := 5 + int(binary.BigEndian.Uint16(header[3:5]))
 	if !s.handleTLS(ts, payloadLen, br) || !drainBuffered(logger, br, ts.dstConn) {
 		return
 	}
 
-	closeHere = false
+	closeClientConn.disarm()
+	closeDstConn.disarm()
 	forwardTCP(logger, conn, ts.dstConn, ts.originHost)
 }

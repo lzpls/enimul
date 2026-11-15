@@ -76,13 +76,15 @@ func sendReply(logger log.Logger, conn *net.TCPConn, reply string) bool {
 var socks5BufferPool = sync.Pool{New: func() any { return new([256]byte) }}
 
 func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
-	closeHere := true
-	defer func() {
-		if closeHere {
-			cliConn.SetLinger(0)
-			cliConn.Close()
+	var dstConn *net.TCPConn
+	closeConns := deferred(func() {
+		if dstConn != nil {
+			dstConn.Close()
 		}
-	}()
+		cliConn.SetLinger(0)
+		cliConn.Close()
+	})
+	defer closeConns.do()
 
 	logger := s.logFactory.NewLogger(F.ConnIDToHex5("S", id))
 	logger.Info("Connection from ", cliConn.RemoteAddr())
@@ -99,11 +101,9 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 	}
 
 	buf := socks5BufferPool.Get().(*[256]byte)
-	defer func() {
-		if closeHere {
-			socks5BufferPool.Put(buf)
-		}
-	}()
+	putBuffer := deferred(func() { socks5BufferPool.Put(buf) })
+	defer putBuffer.do()
+
 	methods, err := readN(cliConn, buf[:header[1]])
 	if err != nil {
 		logger.Error("Read methods: ", err)
@@ -196,6 +196,7 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		return
 	}
 	dstPort := binary.BigEndian.Uint16(portBytes)
+	putBuffer.do()
 	originPort := F.Uint(dstPort)
 	oldTarget := net.JoinHostPort(originHost, originPort)
 
@@ -205,27 +206,21 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		dstPort = uint16(policy.Port)
 	}
 
-	var dstConn *net.TCPConn
 	port := F.Uint(dstPort)
 	if !policy.ReplyFirst.IsTrue() {
+		var err error
 		dstConn, err = s.dialer.DialTimeout(dstHost, port, policy.ConnectTimeout, policy.DialDelay)
 		if err != nil {
 			logger.Error("Connection to ", oldTarget, " failed: ", err)
 			sendReply(logger, cliConn, socks5ReplyServerFailure)
 			return
 		}
-		defer func() {
-			if closeHere {
-				dstConn.Close()
-			}
-		}()
 	}
 	if !sendReply(logger, cliConn, socks5ReplySuccess) {
 		return
 	}
 
-	closeHere = false
-	socks5BufferPool.Put(buf)
+	closeConns.disarm()
 	s.handleTunnel(&tunnelSession{
 		logger:     logger,
 		p:          policy,
