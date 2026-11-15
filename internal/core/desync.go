@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lzpls/enimul/internal/buffer"
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	"github.com/lzpls/enimul/internal/freelru"
@@ -274,8 +275,11 @@ func desyncSend(
 	}
 
 	cut := findLastDotOrMidPos(record, sniStart, sniLen)
-	fakeData := make([]byte, cut)
+	fakeData := buffer.Get(cut)
+	putBuffer := deferred(func() { buffer.Put(fakeData) })
+	defer putBuffer.do()
 	copy(fakeData, record[:sniStart])
+	clear(fakeData[sniStart:])
 	const minInterval = 100 * time.Millisecond
 	fakeSleep = max(minInterval, fakeSleep)
 
@@ -288,6 +292,7 @@ func desyncSend(
 	); err != nil {
 		return E.WithStr("send data with noise", err)
 	}
+	putBuffer.do()
 	if _, err = conn.Write(record[cut:]); err != nil {
 		return E.WithStr("send remaining data", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/lzpls/enimul/internal/buffer"
 	"github.com/lzpls/enimul/internal/dial"
 	E "github.com/lzpls/enimul/internal/errors"
 	F "github.com/lzpls/enimul/internal/fmt"
@@ -59,8 +60,12 @@ func (s *Server) handleTunnel(ts *tunnelSession) {
 
 		if peekBytes[0] == tlsRecordTypeHandshake {
 			if peekBytes[1] == tlsMajorVersion {
-				payloadLen := 5 + int(binary.BigEndian.Uint16(peekBytes[3:5]))
-				if !s.handleTLS(ts, payloadLen, br) {
+				payloadLen := binary.BigEndian.Uint16(peekBytes[3:5])
+				if payloadLen > 1<<14 {
+					ts.logger.Error("Invalid payload length: ", payloadLen)
+					return
+				}
+				if !s.handleTLS(ts, tlsRecordHeaderLen+int(payloadLen), br) {
 					return
 				}
 			}
@@ -149,7 +154,8 @@ func (s *Server) handleHTTP(ts *tunnelSession, req *http.Request) (ok bool) {
 }
 
 func (s *Server) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (ok bool) {
-	record := make([]byte, recordLen)
+	record := buffer.Get(recordLen)
+	defer buffer.Put(record)
 	if _, err := io.ReadFull(br, record); err != nil {
 		ts.logger.Error("Read first record: ", err)
 		return

@@ -19,10 +19,9 @@ func findLastDotOrMidPos(data []byte, sniStart, sniLen int) int {
 	return sniStart + subIdx
 }
 
-func sendRecords(conn *net.TCPConn, clientHello []byte,
-	offset, length, records, segments int, minorVersion jsonx.Byte,
-	oob, oobex, waitForAckEnabled bool,
-	interval time.Duration) error {
+// TODO: Use the buffer package to reduce allocations.
+
+func sendRecords(conn *net.TCPConn, clientHello []byte, offset, length, records, segments int, minorVersion jsonx.Byte, oob, oobex, waitForAckEnabled bool, interval time.Duration) error {
 	if !minorVersion.IsZero() {
 		clientHello[2] = minorVersion.Byte()
 	}
