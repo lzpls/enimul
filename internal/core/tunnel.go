@@ -61,11 +61,7 @@ func (s *Server) handleTunnel(ts *tunnelSession) {
 		if peekBytes[0] == tlsRecordTypeHandshake {
 			if peekBytes[1] == tlsMajorVersion {
 				payloadLen := binary.BigEndian.Uint16(peekBytes[3:5])
-				if payloadLen > 1<<14 {
-					ts.logger.Error("Invalid payload length: ", payloadLen)
-					return
-				}
-				if !s.handleTLS(ts, tlsRecordHeaderLen+int(payloadLen), br) {
+				if !checkClientHelloPayloadLength(ts.logger, payloadLen) || !s.handleTLS(ts, tlsRecordHeaderLen+int(payloadLen), br) {
 					return
 				}
 			}
@@ -313,6 +309,14 @@ func (s *Server) handleTLS(ts *tunnelSession, recordLen int, br *bufio.Reader) (
 			return
 		}
 		ts.logger.Info("Sent ClientHello with fake packet")
+	}
+	return true
+}
+
+func checkClientHelloPayloadLength(logger log.Logger, payloadLen uint16) bool {
+	if payloadLen > 1<<14 {
+		logger.Error("Invalid payload length: ", payloadLen)
+		return false
 	}
 	return true
 }

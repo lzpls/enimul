@@ -79,6 +79,10 @@ func (s *Server) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) 
 		logger.Error("Not a standard TLS ClientHello")
 		return
 	}
+	payloadLen := binary.BigEndian.Uint16(header[3:5])
+	if !checkClientHelloPayloadLength(logger, payloadLen) {
+		return
+	}
 
 	ts := &tunnelSession{
 		logger:       logger,
@@ -93,8 +97,7 @@ func (s *Server) handleTunnelSNI(conn *net.TCPConn, connID uint32, port string) 
 		}
 	})
 	defer closeDstConn.do()
-	payloadLen := 5 + int(binary.BigEndian.Uint16(header[3:5]))
-	if !s.handleTLS(ts, payloadLen, br) || !drainBuffered(logger, br, ts.dstConn) {
+	if !s.handleTLS(ts, tlsRecordHeaderLen+int(payloadLen), br) || !drainBuffered(logger, br, ts.dstConn) {
 		return
 	}
 
