@@ -4,6 +4,10 @@
   "socks5_address": "localhost:1080",
   "http_address": "localhost:1225",
   "sniproxy_address": "",
+  /*"inbound_auth": {
+    "username": "my-user",
+    "password": "my-password"
+  },*/
   "outbound_binding": {
     "enable_for_android": false,
     "method": "off",

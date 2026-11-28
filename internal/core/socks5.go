@@ -14,12 +14,15 @@ import (
 )
 
 const (
-	socks5NoAuthReply           = "\x05\x00"
-	socks5ReplySuccess          = "\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00"
-	socks5ReplyServerFailure    = "\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00"
-	socks5ReplyConnNotAllowed   = "\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00"
-	socks5ReplyCmdNotSupported  = "\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00"
-	socks5ReplyAtypNotSupported = "\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyNoAuth               = "\x05\x00"
+	socks5ReplyUsernamePasswordAuth = "\x05\x02"
+	socks5ReplyAuthSuccess          = "\x01\x00"
+	socks5ReplyAuthFailure          = "\x01\x01"
+	socks5ReplySuccess              = "\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyServerFailure        = "\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyConnNotAllowed       = "\x05\x02\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyCmdNotSupported      = "\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00"
+	socks5ReplyAtypNotSupported     = "\x05\x08\x00\x01\x00\x00\x00\x00\x00\x00"
 )
 
 func (s *Server) serveSOCKS5(listenAddr string) {
@@ -110,13 +113,57 @@ func (s *Server) socks5Handler(cliConn *net.TCPConn, id uint32) {
 		return
 	}
 
-	if !slices.Contains(methods, 0x0) {
-		logger.Error("`no auth` method not found")
+	if s.InboundAuth == nil {
+		if !slices.Contains(methods, 0x0) {
+			logger.Error("`no auth` method not found")
+			return
+		}
+		if _, err = cliConn.Write([]byte(socks5ReplyNoAuth)); err != nil {
+			logger.Error("Send auth method: ", err)
+			return
+		}
+	} else if !slices.Contains(methods, 0x2) {
+		logger.Error("Authentication failed: username/password auth method not found")
 		return
-	}
-	if _, err = cliConn.Write([]byte(socks5NoAuthReply)); err != nil {
-		logger.Error("Send auth method: ", err)
+	} else if _, err := cliConn.Write([]byte(socks5ReplyUsernamePasswordAuth)); err != nil {
+		logger.Error("Authentication failed: send auth method: ", err)
 		return
+	} else if authHeader, err := readN(cliConn, buf[:2]); err != nil {
+		logger.Error("Authentication failed: read username/password auth header: ", err)
+		return
+	} else if authHeader[0] != 0x1 || authHeader[1] == 0 {
+		logger.Error("Authentication failed: invalid username/password auth header")
+		cliConn.Write([]byte(socks5ReplyAuthFailure))
+		return
+	} else if usernameBytes, err := readN(cliConn, buf[:authHeader[1]]); err != nil {
+		logger.Error("Authentication failed: read username: ", err)
+		return
+	} else {
+		username := string(usernameBytes)
+		passwordLen, err := readN(cliConn, buf[:1])
+		if err != nil {
+			logger.Error("Authentication failed: read password length: ", err)
+			return
+		}
+		if passwordLen[0] == 0 {
+			logger.Error("Authentication failed: empty password")
+			cliConn.Write([]byte(socks5ReplyAuthFailure))
+			return
+		}
+		passwordBytes, err := readN(cliConn, buf[:passwordLen[0]])
+		if err != nil {
+			logger.Error("Authentication failed: read password: ", err)
+			return
+		}
+		if !s.InboundAuth.check(username, string(passwordBytes)) {
+			logger.Error("Authentication failed: invalid username or password")
+			cliConn.Write([]byte(socks5ReplyAuthFailure))
+			return
+		}
+		if _, err = cliConn.Write([]byte(socks5ReplyAuthSuccess)); err != nil {
+			logger.Error("Send auth success: ", err)
+			return
+		}
 	}
 
 	header, err = readN(cliConn, buf[:4])

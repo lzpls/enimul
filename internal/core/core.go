@@ -20,9 +20,19 @@ type inboundAddrs struct{ socks5, http, sniProxy string }
 
 func inboundIsEnabled(addr string) bool { return addr != "" && addr != "none" }
 
+type InboundAuth struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (ia *InboundAuth) check(username, password string) bool {
+	return string(username) == ia.Username && string(password) == ia.Password
+}
+
 type Server struct {
 	logFactory      *log.Factory
 	inboundAddrs    *inboundAddrs
+	InboundAuth     *InboundAuth
 	dialer          *dial.Dialer
 	dnsResolver     *dnsResolver
 	ttlProbeManager *ttlProbeManager
@@ -56,6 +66,7 @@ type Config struct {
 	Socks5Addr       *string                         `json:"socks5_address"`
 	HttpAddr         *string                         `json:"http_address"`
 	SNIProxyAddr     *string                         `json:"sniproxy_address"`
+	InboundAuth      *InboundAuth                    `json:"inbound_auth"`
 	OutboundBinding  *dial.BindingOption             `json:"outbound_binding"`
 	DNSConfig        *DNSConfig                      `json:"dns"`
 	TTLProbingConfig *TTLProbingConfig               `json:"ttl_probing"`
@@ -72,6 +83,7 @@ type Builder struct {
 	socks5Addr       *string
 	httpAddr         *string
 	sniProxyAddr     *string
+	InboundAuth      *InboundAuth
 	outboundBinding  *dial.BindingOption
 	dnsConfig        *DNSConfig
 	ttlProbingConfig *TTLProbingConfig
@@ -105,6 +117,13 @@ func NewBuilder() *Builder {
 }
 
 func (b *Builder) Merge(cfg *Config) error {
+	if cfg.InboundAuth != nil {
+		if cfg.InboundAuth.Username == "" || cfg.InboundAuth.Password == "" {
+			return E.New("empty username or password")
+		}
+		b.InboundAuth = cfg.InboundAuth
+	}
+
 	if len(b.ipPools) > 0 {
 		for tag, options := range cfg.IPPools {
 			if _, ok := b.ipPools[tag]; ok {
@@ -250,6 +269,7 @@ func (b *Builder) Build() (*Server, error) {
 			http:     *b.httpAddr,
 			sniProxy: *b.sniProxyAddr,
 		},
+		InboundAuth:     b.InboundAuth,
 		dialer:          dialer,
 		ttlProbeManager: ttlProbeManager,
 		dnsResolver:     dnsResolver,

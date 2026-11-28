@@ -19,6 +19,7 @@ import (
 func main() {
 	var (
 		logLevel             log.Level
+		username, password   string
 		configPaths          stringArray
 		rejectUnknownMembers bool
 		maxProcs             int
@@ -32,6 +33,8 @@ func main() {
 	socks5Addr := flag.String("b", "", "SOCKS5 listen address (override config)")
 	httpAddr := flag.String("hb", "", "HTTP proxy listen address (override config)")
 	sniAddr := flag.String("spb", "", "SNI proxy listen address (override config)")
+	flag.StringVar(&username, "username", "", "Username for inbound authentication (override config)")
+	flag.StringVar(&password, "password", "", "Password for inbound authentication (override config)")
 	flag.BoolVar(&rejectUnknownMembers, "duf", false, "Reject configs containing unknown fields")
 	flag.IntVar(&maxProcs, "mp", 0, "GOMAXPROCS")
 	flag.BoolVar(&runGC, "rungc", false, "Run debug.FreeOSMemory after initiation")
@@ -59,6 +62,19 @@ func main() {
 	if printLicense {
 		showLicense()
 		return
+	}
+
+	var inboundAuth *core.InboundAuth
+	switch {
+	case username == "" && password == "":
+	case username == "":
+		F.Errln("Username is empty; provide both -username and -password")
+		os.Exit(1)
+	case password == "":
+		F.Errln("Password is empty; provide both -username and -password")
+		os.Exit(1)
+	default:
+		inboundAuth = &core.InboundAuth{Username: username, Password: password}
 	}
 
 	if len(configPaths) == 0 {
@@ -92,6 +108,7 @@ func main() {
 		Socks5Addr:   ptrOrNil(socks5Addr),
 		HttpAddr:     ptrOrNil(httpAddr),
 		SNIProxyAddr: ptrOrNil(sniAddr),
+		InboundAuth:  inboundAuth,
 	}); err != nil {
 		panic(err)
 	}

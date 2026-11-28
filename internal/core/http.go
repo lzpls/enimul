@@ -2,10 +2,12 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"maps"
 	"net"
 	"net/http"
+	"strings"
 
 	F "github.com/lzpls/enimul/internal/fmt"
 	"github.com/lzpls/enimul/internal/log"
@@ -52,6 +54,37 @@ func (s *Server) serveHTTPProxy(listenAddr string) {
 func (s *Server) httpHandler(w http.ResponseWriter, req *http.Request) {
 	logger := s.logFactory.NewLogger(F.ConnIDToHex5("H", s.getHTTPConnID()))
 	logger.Info(req.RemoteAddr, " - \"", req.Method, " ", req.RequestURI, " ", req.Proto, "\"")
+
+	if s.InboundAuth != nil {
+		auth := req.Header.Get("Proxy-Authorization")
+		if auth == "" {
+			rejectHTTPProxyAuth(logger, w, "missing Proxy-Authorization header")
+			return
+		}
+
+		scheme, encoded, ok := strings.Cut(auth, " ")
+		if !ok || !strings.EqualFold(scheme, "Basic") || encoded == "" {
+			rejectHTTPProxyAuth(logger, w, "expected Basic credentials in Proxy-Authorization header")
+			return
+		}
+
+		credentials, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			rejectHTTPProxyAuth(logger, w, "invalid base64 credentials")
+			return
+		}
+
+		username, password, ok := strings.Cut(string(credentials), ":")
+		if !ok {
+			rejectHTTPProxyAuth(logger, w, "vredentials must contain a username and password separated by ':'")
+			return
+		}
+
+		if !s.InboundAuth.check(username, password) {
+			rejectHTTPProxyAuth(logger, w, "invalid username or password")
+			return
+		}
+	}
 
 	if req.Method == http.MethodConnect {
 		s.handleHTTPConnect(logger, w, req)
@@ -238,4 +271,10 @@ func (s *Server) forwardHTTPRequest(logger log.Logger, w http.ResponseWriter, or
 	if _, err = io.Copy(w, resp.Body); err != nil {
 		logger.Error("Copy response body: ", err)
 	}
+}
+
+func rejectHTTPProxyAuth(logger log.Logger, w http.ResponseWriter, reason string) {
+	logger.Error("Authentication failed: ", reason)
+	w.Header().Set("Proxy-Authenticate", `Basic realm="proxy"`)
+	http.Error(w, "407 Proxy Authentication Required", http.StatusProxyAuthRequired)
 }
